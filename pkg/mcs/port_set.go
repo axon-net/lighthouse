@@ -80,6 +80,10 @@ func (ps *PortSet) Annotate(objmeta *metav1.ObjectMeta) error {
 		return err
 	}
 
+	if objmeta.Annotations == nil {
+		objmeta.Annotations = make(map[string]string, len(annotations))
+	}
+
 	for key, value := range annotations {
 		objmeta.Annotations[key] = value
 	}
@@ -219,7 +223,11 @@ func decodePortFromAnnotation(name, value string) (*mcsv1a1.ServicePort, error) 
 }
 
 // Equals determines if the two sets have equal definitions for their
-// named ports. Note that according to the v1ServicePorts specification
+// named ports. Comparison can take into account all ports in the two
+// sets or just the shared set.
+// According to the v1.Service definition only one port can be unnamed
+// and Ports having the same name must agree on the Port, Protocol and
+// AppProtocol.
 func equals(lhs, rhs *PortSet, validateAllPorts bool) bool {
 	if lhs == rhs {
 		return true
