@@ -23,7 +23,6 @@ import (
 
 	lhconstants "github.com/submariner-io/lighthouse/pkg/constants"
 	"github.com/submariner-io/lighthouse/pkg/loadbalancer"
-	"k8s.io/klog"
 	mcsv1a1 "sigs.k8s.io/mcs-api/pkg/apis/v1alpha1"
 )
 
@@ -53,7 +52,8 @@ func (si *serviceInfo) resetLoadBalancing() {
 	for _, info := range si.records {
 		err := si.balancer.Add(info.name, info.weight)
 		if err != nil {
-			klog.Error(err)
+			logger.Error(err, "Failed adding load balancer record",
+				"name", info.name, "weight", info.weight)
 		}
 	}
 }
@@ -204,7 +204,7 @@ func getServiceWeightFrom(si *mcsv1a1.ServiceImport, forClusterName string) int6
 			return f
 		}
 
-		klog.Errorf("Error: %v parsing the %q annotation from ServiceImport %q", err, weightKey, si.Name)
+		logger.Error(err, "Failed parsing the annotation from ServiceImport", "weightKey", weightKey, "name", si.Name)
 	}
 
 	return 1 // Zero will cause no selection

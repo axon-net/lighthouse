@@ -19,6 +19,7 @@ package gateway_test
 
 import (
 	"context"
+	"github.com/submariner-io/admiral/pkg/log/kzerolog"
 	"testing"
 
 	. "github.com/onsi/ginkgo"
@@ -34,7 +35,6 @@ import (
 	"k8s.io/client-go/dynamic"
 	fakeClient "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/rest"
-	"k8s.io/klog"
 )
 
 const (
@@ -263,7 +263,7 @@ func newGateway() *unstructured.Unstructured {
 }
 
 func init() {
-	klog.InitFlags(nil)
+	kzerolog.InitK8sLogging()
 }
 
 func TestGateway(t *testing.T) {

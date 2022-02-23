@@ -19,6 +19,7 @@ package endpointslice
 
 import (
 	"context"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/pkg/errors"
 	lhconstants "github.com/submariner-io/lighthouse/pkg/constants"
@@ -30,13 +31,13 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
-	"k8s.io/klog"
 )
 
 type NewClientsetFunc func(kubeConfig *rest.Config) (kubernetes.Interface, error)
 
 // NewClientset is an indirection hook for unit tests to supply fake client sets.
 var NewClientset NewClientsetFunc
+var logger = logf.Log.WithName("endpointslice")
 
 type Controller struct {
 	// Indirection hook for unit tests to supply fake client sets.
@@ -66,7 +67,7 @@ func getNewClientsetFunc() NewClientsetFunc {
 }
 
 func (c *Controller) Start(kubeConfig *rest.Config) error {
-	klog.Infof("Starting EndpointSlice Controller")
+	logger.Info("Starting EndpointSlice Controller")
 
 	clientSet, err := c.NewClientset(kubeConfig)
 	if err != nil {
@@ -106,14 +107,14 @@ func (c *Controller) Start(kubeConfig *rest.Config) error {
 				if endpointSlice, ok = obj.(*discovery.EndpointSlice); !ok {
 					tombstone, ok := obj.(cache.DeletedFinalStateUnknown)
 					if !ok {
-						klog.Errorf("Failed to get deleted endpointSlice object %v", obj)
+						logger.Error(nil, "Failed to get deleted EndpointSlice", "object", obj)
 						return
 					}
 
 					endpointSlice, ok = tombstone.Obj.(*discovery.EndpointSlice)
 
 					if !ok {
-						klog.Errorf("Failed to convert deleted tombstone object %v  to endpointSlice", tombstone.Obj)
+						logger.Error(nil, "Failed to convert deleted tombstone to EndpointSlice", "object", tombstone.Obj)
 						return
 					}
 				}
@@ -130,7 +131,7 @@ func (c *Controller) Start(kubeConfig *rest.Config) error {
 func (c *Controller) Stop() {
 	close(c.stopCh)
 
-	klog.Infof("EndpointSlice Controller stopped")
+	logger.Info("EndpointSlice Controller stopped")
 }
 
 func (c *Controller) IsHealthy(name, namespace, clusterID string) bool {

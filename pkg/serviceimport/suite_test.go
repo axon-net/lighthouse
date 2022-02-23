@@ -18,15 +18,15 @@ limitations under the License.
 package serviceimport_test
 
 import (
+	"github.com/submariner-io/admiral/pkg/log/kzerolog"
 	"testing"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	"k8s.io/klog"
 )
 
 func init() {
-	klog.InitFlags(nil)
+	kzerolog.InitK8sLogging()
 }
 
 func TestServiceImport(t *testing.T) {

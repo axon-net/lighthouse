@@ -19,13 +19,13 @@ package serviceimport
 
 import (
 	"fmt"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/pkg/errors"
 	"github.com/submariner-io/admiral/pkg/log"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
-	"k8s.io/klog"
 	mcsv1a1 "sigs.k8s.io/mcs-api/pkg/apis/v1alpha1"
 	mcsClientset "sigs.k8s.io/mcs-api/pkg/client/clientset/versioned"
 	mcsInformers "sigs.k8s.io/mcs-api/pkg/client/informers/externalversions"
@@ -35,6 +35,7 @@ type NewClientsetFunc func(kubeConfig *rest.Config) (mcsClientset.Interface, err
 
 // NewClientset is an indirection hook for unit tests to supply fake client sets.
 var NewClientset NewClientsetFunc
+var logger = logf.Log.WithName("serviceimport")
 
 type Controller struct {
 	// Indirection hook for unit tests to supply fake client sets.
@@ -63,7 +64,7 @@ func getNewClientsetFunc() NewClientsetFunc {
 }
 
 func (c *Controller) Start(kubeConfig *rest.Config) error {
-	klog.Infof("Starting ServiceImport Controller")
+	logger.Info("Starting ServiceImport Controller")
 
 	clientSet, err := c.NewClientset(kubeConfig)
 	if err != nil {
@@ -94,17 +95,17 @@ func (c *Controller) Start(kubeConfig *rest.Config) error {
 func (c *Controller) Stop() {
 	close(c.stopCh)
 
-	klog.Infof("ServiceImport Controller stopped")
+	logger.Info("ServiceImport Controller stopped")
 }
 
 func (c *Controller) serviceImportCreatedOrUpdated(obj interface{}) {
-	klog.V(log.DEBUG).Infof("In serviceImportCreatedOrUpdated for: %#v, ", obj)
+	logger.V(log.DEBUG).Info("In serviceImportCreatedOrUpdated", "obj", obj)
 
 	c.store.Put(obj.(*mcsv1a1.ServiceImport))
 }
 
 func (c *Controller) serviceImportDeleted(obj interface{}) {
-	klog.V(log.DEBUG).Infof("In serviceImportDeleted for: %#v, ", obj)
+	logger.V(log.DEBUG).Info("In serviceImportDeleted", "obj", obj)
 
 	var si *mcsv1a1.ServiceImport
 	var ok bool
@@ -112,13 +113,13 @@ func (c *Controller) serviceImportDeleted(obj interface{}) {
 	if si, ok = obj.(*mcsv1a1.ServiceImport); !ok {
 		tombstone, ok := obj.(cache.DeletedFinalStateUnknown)
 		if !ok {
-			klog.Errorf("Could not convert object %#v to DeletedFinalStateUnknown", obj)
+			logger.Error(nil, "Could not convert object to DeletedFinalStateUnknown", "obj", obj)
 			return
 		}
 
 		si, ok = tombstone.Obj.(*mcsv1a1.ServiceImport)
 		if !ok {
-			klog.Errorf("Could not convert object tombstone %#v to Unstructured", tombstone.Obj)
+			logger.Error(nil, "Could not convert object tombstone to Unstructured", "obj", tombstone.Obj)
 			return
 		}
 	}

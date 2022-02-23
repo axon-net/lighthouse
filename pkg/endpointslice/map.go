@@ -24,7 +24,6 @@ import (
 	"github.com/submariner-io/lighthouse/pkg/constants"
 	"github.com/submariner-io/lighthouse/pkg/serviceimport"
 	discovery "k8s.io/api/discovery/v1beta1"
-	"k8s.io/klog"
 	mcsv1a1 "sigs.k8s.io/mcs-api/pkg/apis/v1alpha1"
 )
 
@@ -94,7 +93,7 @@ func NewMap() *Map {
 func (m *Map) Put(es *discovery.EndpointSlice) {
 	key, ok := getKey(es)
 	if !ok {
-		klog.Warningf("Failed to get key labels from %#v", es.ObjectMeta)
+		logger.Info("Warning: Failed to get key labels", "ObjectMeta", es.ObjectMeta)
 		return
 	}
 
@@ -106,7 +105,7 @@ func (m *Map) Put(es *discovery.EndpointSlice) {
 	}
 
 	if !ok {
-		klog.Warningf("Cluster label missing on %#v", es.ObjectMeta)
+		logger.Info("Warning: Cluster label missing", "ObjectMeta", es.ObjectMeta)
 		return
 	}
 
@@ -162,7 +161,8 @@ func (m *Map) Put(es *discovery.EndpointSlice) {
 		epInfo.clusterInfo[cluster].recordList = append(epInfo.clusterInfo[cluster].recordList, records...)
 	}
 
-	klog.V(log.DEBUG).Infof("Adding clusterInfo %#v for EndpointSlice %q in %q", epInfo.clusterInfo[cluster], es.Name, cluster)
+	logger.V(log.DEBUG).Info("Adding cluster info for EndpointSlice",
+		"clusterInfo", epInfo.clusterInfo[cluster], "name", es.Name, "cluster", cluster)
 
 	m.epMap[key] = epInfo
 }
@@ -189,7 +189,8 @@ func (m *Map) Remove(es *discovery.EndpointSlice) {
 			return
 		}
 
-		klog.V(log.DEBUG).Infof("Adding endpointInfo %#v for %s in %s", epInfo.clusterInfo[cluster], es.Name, cluster)
+		logger.V(log.DEBUG).Info("Adding endpoint info",
+			"clusterInfo", epInfo.clusterInfo[cluster], "name", es.Name, "cluster", cluster)
 		delete(epInfo.clusterInfo, cluster)
 	}
 }

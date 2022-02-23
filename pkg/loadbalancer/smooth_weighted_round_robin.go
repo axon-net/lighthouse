@@ -19,9 +19,10 @@ package loadbalancer
 
 import (
 	"fmt"
-
-	"k8s.io/klog"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
+
+var logger = logf.Log.WithName("loadbalancer")
 
 type weightedItem struct {
 	item            interface{}
@@ -51,7 +52,7 @@ func (lb *smoothWeightedRR) Skip(item interface{}) {
 			wt.effectiveWeight = 0
 		}
 	} else {
-		klog.Errorf("Could not find item to skip: %v", item)
+		logger.Error(nil, "Could not find item to skip", "item", item)
 	}
 }
 

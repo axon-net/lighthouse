@@ -19,6 +19,7 @@ package service
 
 import (
 	"context"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/pkg/errors"
 	"github.com/submariner-io/admiral/pkg/log"
@@ -30,9 +31,10 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
-	"k8s.io/klog"
 	mcsv1a1 "sigs.k8s.io/mcs-api/pkg/apis/v1alpha1"
 )
+
+var logger = logf.Log.WithName("service")
 
 type Controller struct {
 	// Indirection hook for unit tests to supply fake client sets
@@ -54,7 +56,7 @@ func NewController(localClusterID string) *Controller {
 }
 
 func (c *Controller) Start(kubeConfig *rest.Config) error {
-	klog.Infof("Starting Services Controller")
+	logger.Info("Starting Services Controller")
 
 	clientSet, err := c.NewClientset(kubeConfig)
 	if err != nil {
@@ -88,7 +90,7 @@ func (c *Controller) Start(kubeConfig *rest.Config) error {
 func (c *Controller) Stop() {
 	close(c.stopCh)
 
-	klog.Infof("Services Controller stopped")
+	logger.Info("Services Controller stopped")
 }
 
 func (c *Controller) GetIP(name, namespace string) (*serviceimport.DNSRecord, bool) {
@@ -96,7 +98,7 @@ func (c *Controller) GetIP(name, namespace string) (*serviceimport.DNSRecord, bo
 
 	obj, exists, err := c.svcStore.GetByKey(key)
 	if err != nil {
-		klog.V(log.DEBUG).Infof("Error trying to get service for key %q", key)
+		logger.V(log.DEBUG).Info("Error trying to get service", "key", key)
 		return nil, false
 	}
 

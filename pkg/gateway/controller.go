@@ -21,6 +21,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sync/atomic"
 
 	"github.com/pkg/errors"
@@ -36,13 +37,14 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
-	"k8s.io/klog"
 )
 
 type NewClientsetFunc func(c *rest.Config) (dynamic.Interface, error)
 
 // NewClientset is an indirection hook for unit tests to supply fake client sets.
 var NewClientset NewClientsetFunc
+
+var logger = logf.Log.WithName("agent")
 
 type Controller struct {
 	NewClientset     NewClientsetFunc
@@ -67,7 +69,7 @@ func NewController() *Controller {
 
 	localClusterID := os.Getenv("SUBMARINER_CLUSTERID")
 
-	klog.Infof("Setting localClusterID from env: %q", localClusterID)
+	logger.Info("Setting localClusterID from env", "ID", localClusterID)
 	controller.localClusterID.Store(localClusterID)
 
 	return controller
@@ -84,7 +86,7 @@ func getNewClientsetFunc() NewClientsetFunc {
 func (c *Controller) Start(kubeConfig *rest.Config) error {
 	gwClientset, err := c.getCheckedClientset(kubeConfig)
 	if apierrors.IsNotFound(err) {
-		klog.Infof("Gateway resource not found, disabling Gateway status controller")
+		logger.Info("Gateway resource not found, disabling Gateway status controller")
 
 		c.gatewayAvailable = false
 
@@ -95,7 +97,7 @@ func (c *Controller) Start(kubeConfig *rest.Config) error {
 		return err
 	}
 
-	klog.Infof("Starting Gateway status Controller")
+	logger.Info("Starting Gateway status Controller")
 
 	// nolint:wrapcheck // Let the caller wrap these errors.
 	c.store, c.informer = cache.NewInformer(&cache.ListWatch{
@@ -112,7 +114,7 @@ func (c *Controller) Start(kubeConfig *rest.Config) error {
 		},
 		DeleteFunc: func(obj interface{}) {
 			key, _ := cache.DeletionHandlingMetaNamespaceKeyFunc(obj)
-			klog.V(log.DEBUG).Infof("GatewayStatus %q deleted", key)
+			logger.V(log.DEBUG).Info("GatewayStatus deleted", "key", key)
 		},
 	})
 
@@ -130,7 +132,7 @@ func (c *Controller) Start(kubeConfig *rest.Config) error {
 func (c *Controller) Stop() {
 	close(c.stopCh)
 	c.queue.ShutDown()
-	klog.Infof("Gateway status Controller stopped")
+	logger.Info("Gateway status Controller stopped")
 }
 
 func (c *Controller) processNextGateway(key, name, ns string) (bool, error) {
@@ -169,12 +171,12 @@ func (c *Controller) updateClusterStatusMap(connections []interface{}) {
 
 		status, found, err := unstructured.NestedString(connectionMap, "status")
 		if err != nil || !found {
-			klog.Errorf("status field not found in %#v", connectionMap)
+			logger.Error(nil, "status field not found", "connectionMap", connectionMap)
 		}
 
 		clusterID, found, err := unstructured.NestedString(connectionMap, "endpoint", "cluster_id")
 		if !found || err != nil {
-			klog.Errorf("cluster_id field not found in %#v", connectionMap)
+			logger.Error(nil, "cluster_id field not found", "connectionMap", connectionMap)
 			continue
 		}
 
@@ -199,7 +201,7 @@ func (c *Controller) updateClusterStatusMap(connections []interface{}) {
 	}
 
 	if newMap != nil {
-		klog.Infof("Updating the gateway status %#v ", newMap)
+		logger.Info("Updating the gateway status", "newMap", newMap)
 		c.clusterStatusMap.Store(newMap)
 	}
 }
@@ -207,7 +209,7 @@ func (c *Controller) updateClusterStatusMap(connections []interface{}) {
 func (c *Controller) updateLocalClusterIDIfNeeded(clusterID string) {
 	updateNeeded := clusterID != "" && clusterID != c.LocalClusterID()
 	if updateNeeded {
-		klog.Infof("Updating the gateway localClusterID %q ", clusterID)
+		logger.Info("Updating the gateway localClusterID", "ID", clusterID)
 		c.localClusterID.Store(clusterID)
 	}
 }
@@ -215,14 +217,14 @@ func (c *Controller) updateLocalClusterIDIfNeeded(clusterID string) {
 func getGatewayStatus(obj *unstructured.Unstructured) (connections []interface{}, clusterID string, gwStatus bool) {
 	status, found, err := unstructured.NestedMap(obj.Object, "status")
 	if !found || err != nil {
-		klog.Errorf("status field not found in %#v, err was: %v", obj, err)
+		logger.Error(err, "status field not found", "obj", obj)
 		return nil, "", false
 	}
 
 	localClusterID, found, err := unstructured.NestedString(status, "localEndpoint", "cluster_id")
 
 	if !found || err != nil {
-		klog.Errorf("localEndpoint->cluster_id not found in %#v, err was: %v", status, err)
+		logger.Error(err, "localEndpoint->cluster_id not found", "status", status)
 
 		localClusterID = ""
 	} else {
@@ -237,14 +239,14 @@ func getGatewayStatus(obj *unstructured.Unstructured) (connections []interface{}
 	haStatus, found, err := unstructured.NestedString(status, "haStatus")
 
 	if !found || err != nil {
-		klog.Errorf("haStatus field not found in %#v, err was: %v", status, err)
+		logger.Error(err, "haStatus field not found", "status", status)
 		return connections, localClusterID, true
 	}
 
 	if haStatus == "active" {
 		rconns, _, err := unstructured.NestedSlice(status, "connections")
 		if err != nil {
-			klog.Errorf("connections field not found in %#v, err was: %v", status, err)
+			logger.Error(err, "connections field not found", "status", status)
 			return connections, localClusterID, false
 		}
 
