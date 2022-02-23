@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"github.com/kelseyhightower/envconfig"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/submariner-io/admiral/pkg/log"
 	"github.com/submariner-io/admiral/pkg/log/kzerolog"
 	"github.com/submariner-io/admiral/pkg/syncer/broker"
 	"github.com/submariner-io/admiral/pkg/util"
@@ -44,7 +45,7 @@ var (
 	masterURL  string
 	kubeConfig string
 	help       = false
-	log        = logf.Log.WithName("main")
+	logger     = logf.Log.WithName("main")
 )
 
 func init() {
@@ -56,7 +57,7 @@ func exitOnError(err error, reason string) {
 		return
 	}
 
-	log.Error(err, "Failed to initialize.", "reason", reason)
+	logger.Error(err, "Failed to initialize.", "reason", reason)
 	os.Exit(255)
 }
 
@@ -65,11 +66,11 @@ func main() {
 	// SUBMARINER_VERBOSITY determines the verbosity level (1 by default)
 	// SUBMARINER_DEBUG, if set to true, sets the verbosity level to 3
 	if debug := os.Getenv("SUBMARINER_DEBUG"); debug == "true" {
-		os.Args = append(os.Args, "-v=3")
+		os.Args = append(os.Args, fmt.Sprintf("-v=%d", log.LIBDEBUG))
 	} else if verbosity := os.Getenv("SUBMARINER_VERBOSITY"); verbosity != "" {
 		os.Args = append(os.Args, fmt.Sprintf("-v=%s", verbosity))
 	} else {
-		os.Args = append(os.Args, "-v=2")
+		os.Args = append(os.Args, fmt.Sprintf("-v=%d", log.DEBUG))
 	}
 
 	kzerolog.AddFlags(nil)
@@ -88,12 +89,12 @@ func main() {
 
 	kzerolog.InitK8sLogging()
 
-	log.Info("Arguments", "value", os.Args)
+	logger.Info("Arguments", "value", os.Args)
 
 	agentSpec := controller.AgentSpecification{}
 	err := envconfig.Process("submariner", &agentSpec)
 	exitOnError(err, "Error processing env config for agent spec")
-	log.Info("AgentSpec", "value", agentSpec)
+	logger.Info("AgentSpec", "value", agentSpec)
 
 	err = mcsv1a1.AddToScheme(scheme.Scheme)
 	exitOnError(err, "Error adding Multicluster v1alpha1 to the scheme")
@@ -110,7 +111,7 @@ func main() {
 	localClient, err := dynamic.NewForConfig(cfg)
 	exitOnError(err, "Error creating dynamic client")
 
-	log.Info("Starting submariner-lighthouse-agent")
+	logger.Info("Starting submariner-lighthouse-agent")
 
 	// set up signals so we handle the first shutdown signal gracefully
 	ctx := signals.SetupSignalHandler()
@@ -128,7 +129,7 @@ func main() {
 	exitOnError(err, "Failed to create lighthouse agent")
 
 	if agentSpec.Uninstall {
-		log.Info("Uninstalling lighthouse")
+		logger.Info("Uninstalling lighthouse")
 
 		err := lightHouseAgent.Cleanup()
 		exitOnError(err, "Error cleaning up the lighthouse agent controller")
@@ -143,10 +144,10 @@ func main() {
 
 	<-ctx.Done()
 
-	log.Info("All controllers stopped or exited. Stopping main loop")
+	logger.Info("All controllers stopped or exited. Stopping main loop")
 
 	if err := httpServer.Shutdown(context.TODO()); err != nil {
-		log.Error(err, "Error shutting down metrics HTTP server")
+		logger.Error(err, "Error shutting down metrics HTTP server")
 	}
 }
 
@@ -163,7 +164,7 @@ func startHTTPServer() *http.Server {
 
 	go func() {
 		if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
-			log.Error(err, "Error starting metrics server")
+			logger.Error(err, "Error starting metrics server")
 		}
 	}()
 

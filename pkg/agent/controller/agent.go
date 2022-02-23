@@ -232,8 +232,7 @@ func (a *Controller) serviceImportLister(transform func(si *mcsv1a1.ServiceImpor
 func (a *Controller) serviceExportToServiceImport(obj runtime.Object, numRequeues int, op syncer.Operation) (runtime.Object, bool) {
 	svcExport := obj.(*mcsv1a1.ServiceExport)
 
-	logger.V(log.DEBUG).Info("Converting ServiceExport to ServiceImport",
-		"namespace", svcExport.Namespace, "name", svcExport.Name, "op", op)
+	logger.V(log.DEBUG).Info(fmt.Sprintf("ServiceExport %s/%s %sd", svcExport.Namespace, svcExport.Name, op))
 
 	if op == syncer.Delete {
 		return a.newServiceImport(svcExport.Name, svcExport.Namespace), false

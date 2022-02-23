@@ -21,6 +21,7 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
+	"flag"
 	"fmt"
 	"github.com/submariner-io/admiral/pkg/log/kzerolog"
 	"math/big"
@@ -69,6 +70,10 @@ var (
 )
 
 func init() {
+	flags := flag.NewFlagSet("klog", flag.ExitOnError)
+	kzerolog.AddFlags(flags)
+	//goland:noinspection GoUnhandledErrorResult
+	flags.Parse([]string{"-v=2"})
 	kzerolog.InitK8sLogging()
 
 	err := mcsv1a1.AddToScheme(scheme.Scheme)
