@@ -11,7 +11,7 @@ import (
 	mcsv1a1 "sigs.k8s.io/mcs-api/pkg/apis/v1alpha1"
 )
 
-// ExprtSpec holds the relevant data for creating imports and arbitrating conflicts
+// ExportSpec holds the relevant data for creating imports and arbitrating conflicts
 // in service definitions.
 type ExportSpec struct {
 	// CreatedAt is the API master assigned creation time for the ServiceExport, used in
@@ -23,13 +23,13 @@ type ExportSpec struct {
 	Namespace string `json:"ns"`
 	// Name indicates the original ServiceExport object name.
 	Name string `json:"name"`
-	// Service includes the global properties of the exported Service
-	Service ServiceSpec `json:"spec"`
+	// Properties includes the global properties of the exported Service
+	Properties GlobalProperties `json:"globalProperties"`
 }
 
-// ServiceSpec holds the global Service properties as defined by KEP-1645.
+// GlobalProperties holds the global Service properties as defined by KEP-1645.
 // See https://github.com/kubernetes/enhancements/tree/master/keps/sig-multicluster/1645-multi-cluster-services-api#global-properties.
-type ServiceSpec struct {
+type GlobalProperties struct {
 	// Type set for Service (one of ClusterSetIP or Headless).
 	Type mcsv1a1.ServiceImportType `json:"type"`
 	// SessionAffinity set for the Service.
@@ -50,7 +50,8 @@ const (
 func NewExportSpec(svc *corev1.Service, export *mcsv1a1.ServiceExport,
 	cluster string) (*ExportSpec, error) {
 
-	if svc == nil || export == nil || cluster == "" {
+	if svc == nil || export == nil || cluster == "" || svc.Namespace != export.Namespace ||
+		svc.Name != export.Name {
 		return nil, os.ErrInvalid
 	}
 
@@ -59,7 +60,7 @@ func NewExportSpec(svc *corev1.Service, export *mcsv1a1.ServiceExport,
 		ClusterID: cluster,
 		Namespace: export.Namespace,
 		Name:      export.Name,
-		Service: ServiceSpec{
+		Properties: GlobalProperties{
 			Type:                  mcsv1a1.ClusterSetIP,
 			SessionAffinity:       svc.Spec.SessionAffinity,
 			SessionAffinityConfig: svc.Spec.SessionAffinityConfig,
@@ -67,11 +68,11 @@ func NewExportSpec(svc *corev1.Service, export *mcsv1a1.ServiceExport,
 	}
 
 	if svc.Spec.ClusterIP == corev1.ClusterIPNone {
-		es.Service.Type = mcsv1a1.Headless
+		es.Properties.Type = mcsv1a1.Headless
 	}
 
 	for _, p := range svc.Spec.Ports {
-		es.Service.Ports = append(es.Service.Ports, mcsv1a1.ServicePort{
+		es.Properties.Ports = append(es.Properties.Ports, mcsv1a1.ServicePort{
 			Port:        p.Port,
 			Name:        p.Name,
 			Protocol:    p.Protocol,
@@ -81,9 +82,13 @@ func NewExportSpec(svc *corev1.Service, export *mcsv1a1.ServiceExport,
 	return es, nil
 }
 
-// MarshalObjectMeta encodes the ServiceExport object into the given
+// MarshalObjectMeta encodes the ExportSpec object into the given
 // ObjectMeta's annotations. Returns nil when successfully encoded and
 // an error otherwise.
+// Note: there is currently duplication of information (e.g., cluster,
+// namespace, name) between the annotation created and the annotations
+// used by Lighthouse's sync framework.
+// @todo: use UTC as the canonical time zone
 func (es *ExportSpec) MarshalObjectMeta(md *metav1.ObjectMeta) error {
 	if es == nil || md == nil {
 		return os.ErrInvalid
@@ -103,7 +108,7 @@ func (es *ExportSpec) MarshalObjectMeta(md *metav1.ObjectMeta) error {
 	return nil
 }
 
-// UnmarshalObjectMeta decodes the ServiceExport object from the given
+// UnmarshalObjectMeta decodes the ExportSpec object from the given
 // ObjectMeta's annotations. Returns nil when successfully decoded and
 // an error otherwise.
 func (es *ExportSpec) UnmarshalObjectMeta(md *metav1.ObjectMeta) error {
@@ -135,20 +140,20 @@ func (es *ExportSpec) IsPrefferredOver(another *ExportSpec) bool {
 // false and the name of the conflicting field.
 // @todo do we want to collect a map of the conflicting Global Properties?
 func (es *ExportSpec) IsCompatibleWith(another *ExportSpec) (bool, string) {
-	if es.Service.Type != another.Service.Type {
+	if es.Properties.Type != another.Properties.Type {
 		return false, "type"
-	} else if es.Service.SessionAffinity != another.Service.SessionAffinity {
+	} else if es.Properties.SessionAffinity != another.Properties.SessionAffinity {
 		return false, "affinity"
-	} else if !reflect.DeepEqual(es.Service.SessionAffinityConfig, another.Service.SessionAffinityConfig) {
+	} else if !reflect.DeepEqual(es.Properties.SessionAffinityConfig, another.Properties.SessionAffinityConfig) {
 		return false, "affinityConfig"
 	}
 
-	ports := make(map[string]mcsv1a1.ServicePort, len(es.Service.Ports))
-	for _, p := range es.Service.Ports {
+	ports := make(map[string]mcsv1a1.ServicePort, len(es.Properties.Ports))
+	for _, p := range es.Properties.Ports {
 		ports[p.Name] = p
 	}
 
-	for _, other := range another.Service.Ports {
+	for _, other := range another.Properties.Ports {
 		current, found := ports[other.Name]
 
 		if !found {
