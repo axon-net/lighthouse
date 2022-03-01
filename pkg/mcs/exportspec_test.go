@@ -153,15 +153,43 @@ func TestCompatibility(t *testing.T) {
 		other      *mcs.ExportSpec
 		compatible bool
 		field      string
+		mutate     func(mcs.ExportSpec) *mcs.ExportSpec
 	}{
-		"compatible: empty": {spec: &mcs.ExportSpec{}, other: &mcs.ExportSpec{}, compatible: true},
-		/*
-			"compatible: identical":        {},
-			"compatible: local properties": {},
-			"conflicting: type":            {},
-			"conflicting: affinity":        {},
-			"conflicting: port":            {},
-		*/
+		"compatible: empty": {spec: &mcs.ExportSpec{}, compatible: true,
+			mutate: func(es mcs.ExportSpec) *mcs.ExportSpec {
+				return &mcs.ExportSpec{}
+			}},
+
+		"compatible: identical": {spec: &sample, compatible: true,
+			mutate: func(es mcs.ExportSpec) *mcs.ExportSpec {
+				return &es
+			}},
+
+		"compatible: local properties": {spec: &sample, compatible: true, //#TODO check if that whay Etai means. Does it
+			mutate: func(es mcs.ExportSpec) *mcs.ExportSpec {
+				es.CreatedAt = metav1.NewTime(time.Now().UTC())
+				es.Namespace = "different_namepsace"
+				es.Name = "different_name"
+				return &es
+			}},
+
+		"conflicting: type": {spec: &sample, compatible: false, field: "type",
+			mutate: func(es mcs.ExportSpec) *mcs.ExportSpec {
+				es.Service.Type = mcsv1a1.Headless
+				return &es
+			}},
+
+		"conflicting: affinity": {spec: &sample, compatible: false, field: "affinity",
+			mutate: func(es mcs.ExportSpec) *mcs.ExportSpec {
+				es.Service.SessionAffinity = corev1.ServiceAffinityNone
+				return &es
+			}},
+
+		"conflicting: port": {spec: &sample, compatible: false, field: "ports",
+			mutate: func(es mcs.ExportSpec) *mcs.ExportSpec {
+				es.Service.Ports = append(es.Service.Ports, mcsv1a1.ServicePort{Port: 81, Name: "http", Protocol: corev1.ProtocolTCP})
+				return &es
+			}},
 	}
 
 	assertions := require.New(t)
@@ -169,9 +197,15 @@ func TestCompatibility(t *testing.T) {
 	for name, test := range testcases {
 		t.Logf("Running test case %s", name)
 
-		compatible, field := test.spec.IsCompatibleWith(test.other)
-		assertions.Equal(test.compatible, compatible)
-		assertions.Equal(test.field, field, "unexpected field conflict detected")
+		other := test.mutate(*test.spec)
+		err := test.spec.IsCompatibleWith(other)
+
+		if test.compatible {
+			assertions.Nil(err)
+		} else {
+			assertions.Error(err)
+			assertions.NotEqual("", err.Error())
+		}
 	}
 }
 

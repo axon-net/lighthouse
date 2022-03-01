@@ -20,6 +20,7 @@ package mcs
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"reflect"
 
@@ -55,6 +56,20 @@ type GlobalProperties struct {
 	SessionAffinityConfig *corev1.SessionAffinityConfig `json:"affinityConfig,omitempty"`
 	// Ports defined for the Service.
 	Ports []mcsv1a1.ServicePort `json:"ports"`
+}
+
+type CompatibilityError struct {
+	clusterID string
+	field     string
+}
+
+func (err *CompatibilityError) Error() string {
+	return fmt.Sprintf("field %s conflicts with value in %s",
+		err.field, err.clusterID)
+}
+
+func (err *CompatibilityError) CompareErrField(field string) bool {
+	return err.field == field
 }
 
 const (
@@ -156,13 +171,13 @@ func (es *ExportSpec) IsPreferredOver(another *ExportSpec) bool {
 // Retruns true when the specifications are compatible, otherwise returns
 // false and the name of the conflicting field.
 // @todo do we want to collect a map of the conflicting Global Properties?
-func (es *ExportSpec) IsCompatibleWith(another *ExportSpec) (bool, string) {
+func (es *ExportSpec) IsCompatibleWith(another *ExportSpec) *CompatibilityError {
 	if es.Service.Type != another.Service.Type {
-		return false, "type"
+		return &CompatibilityError{another.ClusterID, "type"}
 	} else if es.Service.SessionAffinity != another.Service.SessionAffinity {
-		return false, "affinity"
+		return &CompatibilityError{another.ClusterID, "affinity"}
 	} else if !reflect.DeepEqual(es.Service.SessionAffinityConfig, another.Service.SessionAffinityConfig) {
-		return false, "affinityConfig"
+		return &CompatibilityError{another.ClusterID, "affinityConfig"}
 	}
 
 	ports := make(map[string]mcsv1a1.ServicePort, len(es.Service.Ports))
@@ -176,8 +191,8 @@ func (es *ExportSpec) IsCompatibleWith(another *ExportSpec) (bool, string) {
 		if !found {
 			continue
 		} else if !reflect.DeepEqual(current, other) {
-			return false, "ports"
+			return &CompatibilityError{another.ClusterID, "ports"}
 		}
 	}
-	return true, ""
+	return nil
 }
