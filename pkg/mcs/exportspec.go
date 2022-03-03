@@ -58,24 +58,34 @@ type GlobalProperties struct {
 	Ports []mcsv1a1.ServicePort `json:"ports"`
 }
 
+const (
+	prefix                  = "lighthouse.submariner.io"
+	ServiceExportAnnotation = prefix + "/" + "serviceExportSpec"
+	NameField               = "name"
+	NamespaceField          = "namespace"
+	TypeField               = "type"
+	PortField               = "ports"
+	AffinityField           = "affinity"
+	AffinityConfigField     = "affinity config"
+)
+
 type CompatibilityError struct {
 	clusterID string
 	field     string
 }
 
 func (err *CompatibilityError) Error() string {
-	return fmt.Sprintf("field %s conflicts with value in %s",
+	if err.field != NameField && err.field != NamespaceField {
+		return fmt.Sprintf("field %s conflicts with value in cluster %s",
+			err.field, err.clusterID)
+	}
+	return fmt.Sprintf("The same service has different %s in cluster %s",
 		err.field, err.clusterID)
 }
 
-func (err *CompatibilityError) CompareErrField(field string) bool {
-	return err.field == field
+func (err *CompatibilityError) Cause() string {
+	return err.field
 }
-
-const (
-	prefix                  = "lighthouse.submariner.io"
-	ServiceExportAnnotation = prefix + "/" + "serviceExportSpec"
-)
 
 // NewExportSpec creates a new ExportSpec based on the given Service and
 // ServiceExport.
@@ -173,11 +183,18 @@ func (es *ExportSpec) IsPreferredOver(another *ExportSpec) bool {
 // @todo do we want to collect a map of the conflicting Global Properties?
 func (es *ExportSpec) IsCompatibleWith(another *ExportSpec) *CompatibilityError {
 	if es.Service.Type != another.Service.Type {
-		return &CompatibilityError{another.ClusterID, "type"}
+		return &CompatibilityError{another.ClusterID, TypeField}
 	} else if es.Service.SessionAffinity != another.Service.SessionAffinity {
-		return &CompatibilityError{another.ClusterID, "affinity"}
+		return &CompatibilityError{another.ClusterID, AffinityField}
 	} else if !reflect.DeepEqual(es.Service.SessionAffinityConfig, another.Service.SessionAffinityConfig) {
-		return &CompatibilityError{another.ClusterID, "affinityConfig"}
+		return &CompatibilityError{another.ClusterID, AffinityConfigField}
+	}
+
+	if es.Name != another.Name {
+		return &CompatibilityError{another.ClusterID, NameField}
+	}
+	if es.Namespace != another.Namespace {
+		return &CompatibilityError{another.ClusterID, NamespaceField}
 	}
 
 	ports := make(map[string]mcsv1a1.ServicePort, len(es.Service.Ports))
@@ -191,7 +208,7 @@ func (es *ExportSpec) IsCompatibleWith(another *ExportSpec) *CompatibilityError 
 		if !found {
 			continue
 		} else if !reflect.DeepEqual(current, other) {
-			return &CompatibilityError{another.ClusterID, "ports"}
+			return &CompatibilityError{another.ClusterID, PortField}
 		}
 	}
 	return nil

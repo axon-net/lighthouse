@@ -30,7 +30,8 @@ import (
 )
 
 var (
-	timeout = int32(10)
+	timeout      = int32(10)
+	otherTimeout = int32(11)
 
 	sample = mcs.ExportSpec{
 		//Truncate time to UTC time-zone with seconds resulotion in order to be compatible with k8s marshal returned time
@@ -47,7 +48,7 @@ var (
 				},
 			},
 			Ports: []mcsv1a1.ServicePort{
-				{Port: 80, Name: "http1", Protocol: corev1.ProtocolTCP},
+				{Port: 80, Name: "http", Protocol: corev1.ProtocolTCP},
 			},
 		},
 	}
@@ -165,11 +166,24 @@ func TestCompatibility(t *testing.T) {
 				return &es
 			}},
 
-		"compatible: local properties": {spec: &sample, compatible: true, //#TODO check if that whay Etai means. Does it
+		"compatible: cluserID": {spec: &sample, compatible: true,
 			mutate: func(es mcs.ExportSpec) *mcs.ExportSpec {
-				es.CreatedAt = metav1.NewTime(time.Now().UTC())
-				es.Namespace = "different_namepsace"
+				es.ClusterID = "different_cluster"
+				return &es
+			}},
+		"compatible: CreatedAt": {spec: &sample, compatible: true,
+			mutate: func(es mcs.ExportSpec) *mcs.ExportSpec {
+				es.CreatedAt.Time = es.CreatedAt.Time.Add(1 * time.Second)
+				return &es
+			}},
+		"conflicting: name": {spec: &sample, compatible: false, field: "name",
+			mutate: func(es mcs.ExportSpec) *mcs.ExportSpec {
 				es.Name = "different_name"
+				return &es
+			}},
+		"conflicting: namespace": {spec: &sample, compatible: false, field: "namespace",
+			mutate: func(es mcs.ExportSpec) *mcs.ExportSpec {
+				es.Namespace = "different_namepsace"
 				return &es
 			}},
 
@@ -182,6 +196,16 @@ func TestCompatibility(t *testing.T) {
 		"conflicting: affinity": {spec: &sample, compatible: false, field: "affinity",
 			mutate: func(es mcs.ExportSpec) *mcs.ExportSpec {
 				es.Service.SessionAffinity = corev1.ServiceAffinityNone
+				return &es
+			}},
+
+		"conflicting: affinity config": {spec: &sample, compatible: false, field: "affinity config",
+			mutate: func(es mcs.ExportSpec) *mcs.ExportSpec {
+				es.Service.SessionAffinityConfig = &corev1.SessionAffinityConfig{
+					ClientIP: &corev1.ClientIPConfig{
+						TimeoutSeconds: &otherTimeout,
+					},
+				}
 				return &es
 			}},
 
@@ -203,8 +227,9 @@ func TestCompatibility(t *testing.T) {
 		if test.compatible {
 			assertions.Nil(err)
 		} else {
-			assertions.Error(err)
+			assertions.NotNil(err)
 			assertions.NotEqual("", err.Error())
+			assertions.Equal(err.Cause(), test.field)
 		}
 	}
 }
