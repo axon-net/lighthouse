@@ -182,19 +182,19 @@ func (es *ExportSpec) IsPreferredOver(another *ExportSpec) bool {
 // false and the name of the conflicting field.
 // @todo do we want to collect a map of the conflicting Global Properties?
 func (es *ExportSpec) IsCompatibleWith(another *ExportSpec) *CompatibilityError {
+	if es.Name != another.Name {
+		return &CompatibilityError{another.ClusterID, NameField}
+	}
+	if es.Namespace != another.Namespace {
+		return &CompatibilityError{another.ClusterID, NamespaceField}
+	}
+
 	if es.Service.Type != another.Service.Type {
 		return &CompatibilityError{another.ClusterID, TypeField}
 	} else if es.Service.SessionAffinity != another.Service.SessionAffinity {
 		return &CompatibilityError{another.ClusterID, AffinityField}
 	} else if !reflect.DeepEqual(es.Service.SessionAffinityConfig, another.Service.SessionAffinityConfig) {
 		return &CompatibilityError{another.ClusterID, AffinityConfigField}
-	}
-
-	if es.Name != another.Name {
-		return &CompatibilityError{another.ClusterID, NameField}
-	}
-	if es.Namespace != another.Namespace {
-		return &CompatibilityError{another.ClusterID, NamespaceField}
 	}
 
 	ports := make(map[string]mcsv1a1.ServicePort, len(es.Service.Ports))

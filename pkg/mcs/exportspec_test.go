@@ -30,8 +30,7 @@ import (
 )
 
 var (
-	timeout      = int32(10)
-	otherTimeout = int32(11)
+	timeout = int32(10)
 
 	sample = mcs.ExportSpec{
 		//Truncate time to UTC time-zone with seconds resulotion in order to be compatible with k8s marshal returned time
@@ -201,6 +200,7 @@ func TestCompatibility(t *testing.T) {
 
 		"conflicting: affinity config": {spec: &sample, compatible: false, field: "affinity config",
 			mutate: func(es mcs.ExportSpec) *mcs.ExportSpec {
+				otherTimeout := int32(11)
 				es.Service.SessionAffinityConfig = &corev1.SessionAffinityConfig{
 					ClientIP: &corev1.ClientIPConfig{
 						TimeoutSeconds: &otherTimeout,
