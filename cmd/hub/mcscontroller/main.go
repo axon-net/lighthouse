@@ -24,6 +24,7 @@ limitations under the License.
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -57,7 +58,7 @@ func main() {
 	var probeAddr string
 	var namespace string
 
-	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
+	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8082", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
@@ -72,9 +73,17 @@ func main() {
 	flag.Parse()
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
-	namespace, err := getWatchedNamespace()
-	if err != nil {
-		setupLog.Error(err, "failed to get watched namespace, running in cluster scope")
+	if namespace == "" {
+		ns, err := getWatchedNamespace()
+		if err != nil {
+			setupLog.Error(err, "Failed to get watched namespace from environment")
+		}
+		namespace = ns
+	}
+
+	if namespace == "" {
+		setupLog.Error(errors.New("no namespace provided"), "Can't run in cluster scope")
+		os.Exit(1)
 	}
 
 	setupLog.Info("starting hub MCS Controller", "namespace", namespace)
@@ -89,7 +98,7 @@ func main() {
 		Namespace:              namespace,
 	})
 	if err != nil {
-		setupLog.Error(err, "unable to start manager")
+		setupLog.Error(err, "Unable to start manager")
 		os.Exit(1)
 	}
 
@@ -98,24 +107,24 @@ func main() {
 		Log:    ctrl.Log.WithName("controllers").WithName("ServiceExport"),
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "ServiceExport")
+		setupLog.Error(err, "Unable to create controller", "controller", "ServiceExport")
 		os.Exit(1)
 	}
 
 	//+kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
-		setupLog.Error(err, "unable to set up health check")
+		setupLog.Error(err, "Unable to set up health check")
 		os.Exit(1)
 	}
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
-		setupLog.Error(err, "unable to set up ready check")
+		setupLog.Error(err, "Unable to set up ready check")
 		os.Exit(1)
 	}
 
-	setupLog.Info("starting manager")
+	setupLog.Info("Starting manager")
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
-		setupLog.Error(err, "problem running manager")
+		setupLog.Error(err, "Problem running manager")
 		os.Exit(1)
 	}
 }
@@ -129,7 +138,7 @@ func getWatchedNamespace() (string, error) {
 
 	ns, found := os.LookupEnv(nsEnvVar)
 	if !found {
-		return "", fmt.Errorf("%s must be set", nsEnvVar)
+		return "", fmt.Errorf("environment variable %s should be set", nsEnvVar)
 	}
 	return ns, nil
 }

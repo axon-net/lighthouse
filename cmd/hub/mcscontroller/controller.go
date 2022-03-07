@@ -22,7 +22,7 @@ import (
 	"context"
 
 	"github.com/go-logr/logr"
-	"k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -59,14 +59,14 @@ func (r *ServiceExportReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	log := r.Log.WithValues("serviceexport", req.NamespacedName)
 
 	// @todo extract and log the real (i.e., source) object name, namespace and cluster?
-	log.Info("reconciling ServiceExport")
+	log.Info("Reconciling ServiceExport")
 
 	se := mcsv1a1.ServiceExport{}
 	if err := r.Client.Get(ctx, req.NamespacedName, &se); err != nil {
-		if errors.IsNotFound(err) {
-			log.Info("no ServiceExport found")
+		if apierrors.IsNotFound(err) {
+			log.Info("No ServiceExport found")
 		} else {
-			log.Error(err, "error fetching ServiceExport")
+			log.Error(err, "Error fetching ServiceExport")
 		}
 		return ctrl.Result{}, nil
 	}
@@ -103,16 +103,20 @@ func (r *ServiceExportReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 // 	 receive a notification for change in an object scheduled for deletion.
 // - ServiceImports are owned by the corresponding ServiceExport and are thus
 //	 automatically deleted by k8s when their ServiceExport is deleted.
+//
 func (r *ServiceExportReconciler) reconcile(ctx context.Context, se *mcsv1a1.ServiceExport) (ctrl.Result, error) {
 	lh := mcs.Lighthouse{}
 	name := lh.GetOriginalObjectName(se.ObjectMeta)
-	log := r.Log.WithValues("serviceexport", name).WithValues("cluster", lh.GetOriginalObjectCluster(se.ObjectMeta))
+	// @todo: add the NamespacedName of the ServiceExport to be compatible with Reconcile?
+	log := r.Log.WithValues("service", name).WithValues("cluster", lh.GetOriginalObjectCluster(se.ObjectMeta))
 
 	if !controllerutil.ContainsFinalizer(se, serviceExportFinalizer) && se.GetDeletionTimestamp() == nil {
 		controllerutil.AddFinalizer(se, serviceExportFinalizer)
 		if err := r.Client.Update(ctx, se); err != nil {
-			// @todo handle version mismatch error?
-			log.Error(err, "error adding finalizer")
+			if apierrors.IsConflict(err) { // The SE has been updated since we read it, requeue to retry reconciliation.
+				return ctrl.Result{Requeue: true}, nil
+			}
+			log.Error(err, "Error adding finalizer")
 			return ctrl.Result{}, err
 		}
 	}
@@ -132,10 +136,11 @@ func (r *ServiceExportReconciler) reconcile(ctx context.Context, se *mcsv1a1.Ser
 func (r *ServiceExportReconciler) handleDelete(ctx context.Context, se *mcsv1a1.ServiceExport) (ctrl.Result, error) {
 	if controllerutil.ContainsFinalizer(se, serviceExportFinalizer) {
 		lh := mcs.Lighthouse{}
-		log := r.Log.WithValues("serviceexport", lh.GetOriginalObjectName(se.ObjectMeta)).
+		// @todo: add the NamespacedName of the ServiceExport to be compatible with Reconcile?
+		log := r.Log.WithValues("service", lh.GetOriginalObjectName(se.ObjectMeta)).
 			WithValues("cluster", lh.GetOriginalObjectCluster(se.ObjectMeta))
 
-		log.Info("removing service export")
+		log.Info("Removing service export")
 
 		// clear the finalizer
 		controllerutil.RemoveFinalizer(se, serviceExportFinalizer)
