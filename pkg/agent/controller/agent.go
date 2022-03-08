@@ -39,7 +39,6 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/util/retry"
-	"reflect"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	mcsv1a1 "sigs.k8s.io/mcs-api/pkg/apis/v1alpha1"
 )
@@ -399,7 +398,7 @@ func (a *Controller) serviceExportUploadTransform(serviceExportObj runtime.Objec
 		mcsv1a1.ServiceExportValid, corev1.ConditionFalse, ReasonAwaitingSync,
 		"Awaiting sync of the ServiceExport to the broker")
 
-	logger.V(log.DEBUG).Info("Returning ServiceExport", "value", brokerServiceExport)
+	logger.V(log.TRACE).Info("Returning ServiceExport:\n" + PrettyPrint(brokerServiceExport))
 
 	return brokerServiceExport, false
 }
@@ -617,11 +616,6 @@ func (a *Controller) getServiceExport(name, namespace string) (*mcsv1a1.ServiceE
 	return se, nil
 }
 
-func serviceExportConditionEqual(c1, c2 *mcsv1a1.ServiceExportCondition) bool {
-	return c1.Type == c2.Type && c1.Status == c2.Status && reflect.DeepEqual(c1.Reason, c2.Reason) &&
-		reflect.DeepEqual(c1.Message, c2.Message)
-}
-
 func (a *Controller) newServiceExport(name, namespace string) *mcsv1a1.ServiceExport {
 	return &mcsv1a1.ServiceExport{
 		ObjectMeta: metav1.ObjectMeta{
@@ -673,10 +667,6 @@ func (a *Controller) getPortsForService(service *corev1.Service) []mcsv1a1.Servi
 
 func (a *Controller) getObjectNameWithClusterID(name, namespace string) string {
 	return lhutil.GenerateObjectName(name, namespace, a.clusterID)
-}
-
-func GetObjectNameWithClusterID(name, namespace string, clusterID string) string {
-	return name + "-" + namespace + "-" + clusterID
 }
 
 func (a *Controller) remoteEndpointSliceToLocal(obj runtime.Object, _ int, _ syncer.Operation) (runtime.Object, bool) {

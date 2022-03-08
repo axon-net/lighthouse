@@ -20,7 +20,6 @@ package controller_test
 import (
 	"context"
 	"crypto/rand"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -72,7 +71,8 @@ var (
 )
 
 func init() {
-	args := []string{fmt.Sprintf("-v=%d", log.DEBUG)}
+	logLevel := log.DEBUG
+	args := []string{fmt.Sprintf("-v=%d", logLevel)}
 	// set logging verbosity of agent in unit test to DEBUG
 	flags := flag.NewFlagSet("kzerolog", flag.ExitOnError)
 	kzerolog.AddFlags(flags)
@@ -649,8 +649,8 @@ func (t *testDriver) awaitServiceExport(client *fake.DynamicResourceClient, expo
 	if err != nil {
 		Fail(fmt.Sprintf("ServiceExport named %s did not reach expected state:\n"+
 			"%s\n"+
-			"Error: %s. Found export:\n%+v",
-			exportName, prettyPrint(expectedCondition), err, prettyPrint(serviceExportFound)))
+			"Error: %s. Found export:\n%s",
+			exportName, controller.PrettyPrint(expectedCondition), err, controller.PrettyPrint(serviceExportFound)))
 	}
 
 	return serviceExportFound
@@ -844,12 +844,4 @@ func setIngressIPConditions(ingressIP *unstructured.Unstructured, conditions ...
 
 func setIngressAllocatedIP(ingressIP *unstructured.Unstructured, ip string) {
 	Expect(unstructured.SetNestedField(ingressIP.Object, ip, "status", "allocatedIP")).To(Succeed())
-}
-
-func prettyPrint(obj interface{}) string {
-	jsonBytes, err := json.MarshalIndent(obj, "", "\t")
-	if err != nil {
-		return fmt.Sprintf("%#v", obj)
-	}
-	return string(jsonBytes)
 }
