@@ -41,6 +41,7 @@ func GenerateObjectName(name, ns, cluster string) string {
 // Lighthouse labels provided in the object metadata.
 func GetOriginalObjectName(objmd metav1.ObjectMeta) types.NamespacedName {
 	labels := objmd.GetLabels()
+
 	return types.NamespacedName{
 		Namespace: labels[lhconst.LabelSourceNamespace],
 		Name:      labels[lhconst.LighthouseLabelSourceName],
@@ -57,6 +58,7 @@ func GetOriginalObjectCluster(objmd metav1.ObjectMeta) string {
 // Note: metav1.SetMetaDataLabel added in v0.20.0
 func Label(objmd *metav1.ObjectMeta, name, ns, cluster string) {
 	labels := objmd.GetLabels()
+
 	labels[lhconst.LighthouseLabelSourceCluster] = cluster
 	labels[lhconst.LabelSourceNamespace] = ns
 	labels[lhconst.LighthouseLabelSourceName] = name
@@ -72,6 +74,7 @@ func Annotate(objmd *metav1.ObjectMeta, name, ns, cluster string) {
 // or ServiceImport objects. It relies on the presence of the Lighthouse labels.
 func ServiceExportListFilter(objmd metav1.ObjectMeta) (*client.ListOptions, error) {
 	labels := objmd.GetLabels()
+
 	if labels[lhconst.LabelSourceNamespace] == "" || labels[lhconst.LighthouseLabelSourceName] == "" {
 		return nil, fmt.Errorf("%s missing lighthouse labels", objmd.GetName())
 	}
