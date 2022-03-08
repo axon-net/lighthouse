@@ -79,8 +79,7 @@ func (err *CompatibilityError) Error() string {
 		return fmt.Sprintf("field %s conflicts with value in cluster %s",
 			err.field, err.clusterID)
 	}
-	return fmt.Sprintf("The same service has different %s in cluster %s",
-		err.field, err.clusterID)
+	return "the export refers to a different service and is incompatible"
 }
 
 func (err *CompatibilityError) Cause() string {
@@ -183,18 +182,28 @@ func (es *ExportSpec) IsPreferredOver(another *ExportSpec) bool {
 // @todo do we want to collect a map of the conflicting Global Properties?
 func (es *ExportSpec) IsCompatibleWith(another *ExportSpec) *CompatibilityError {
 	if es.Name != another.Name {
-		return &CompatibilityError{another.ClusterID, NameField}
+		return &CompatibilityError{
+			clusterID: another.ClusterID,
+			field:     NameField}
 	}
 	if es.Namespace != another.Namespace {
-		return &CompatibilityError{another.ClusterID, NamespaceField}
+		return &CompatibilityError{
+			clusterID: another.ClusterID,
+			field:     NamespaceField}
 	}
 
 	if es.Service.Type != another.Service.Type {
-		return &CompatibilityError{another.ClusterID, TypeField}
+		return &CompatibilityError{
+			clusterID: another.ClusterID,
+			field:     TypeField}
 	} else if es.Service.SessionAffinity != another.Service.SessionAffinity {
-		return &CompatibilityError{another.ClusterID, AffinityField}
+		return &CompatibilityError{
+			clusterID: another.ClusterID,
+			field:     AffinityField}
 	} else if !reflect.DeepEqual(es.Service.SessionAffinityConfig, another.Service.SessionAffinityConfig) {
-		return &CompatibilityError{another.ClusterID, AffinityConfigField}
+		return &CompatibilityError{
+			clusterID: another.ClusterID,
+			field:     AffinityConfigField}
 	}
 
 	ports := make(map[string]mcsv1a1.ServicePort, len(es.Service.Ports))
@@ -208,7 +217,9 @@ func (es *ExportSpec) IsCompatibleWith(another *ExportSpec) *CompatibilityError 
 		if !found {
 			continue
 		} else if !reflect.DeepEqual(current, other) {
-			return &CompatibilityError{another.ClusterID, PortField}
+			return &CompatibilityError{
+				clusterID: another.ClusterID,
+				field:     PortField}
 		}
 	}
 	return nil
