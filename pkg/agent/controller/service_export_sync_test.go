@@ -18,10 +18,13 @@ limitations under the License.
 package controller_test
 
 import (
+	"errors"
 	. "github.com/onsi/ginkgo"
 	"github.com/submariner-io/lighthouse/pkg/agent/controller"
 	"github.com/submariner-io/lighthouse/pkg/mcs"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	mcsv1a1 "sigs.k8s.io/mcs-api/pkg/apis/v1alpha1"
 	"time"
 )
@@ -181,4 +184,21 @@ var _ = Describe("ServiceExport syncing", func() {
 			Expect(time.Now().Sub(exportSpec.CreatedAt.Time)).To(BeNumerically("<", 60*time.Second))
 		})
 	})
+
+	// todo: fix test
+	// this test does not test what it should because UpdateStatus() is not affected by FailOnUpdate
+	// so in practice, no fake conflict is produced
+	When("a conflict initially occurs when updating the ServiceExport status", func() {
+		BeforeEach(func() {
+			err := apierrors.NewConflict(schema.GroupResource{}, t.serviceExport.Name, errors.New("fake conflict"))
+			t.cluster1.localServiceExportClient.FailOnUpdate = err
+		})
+
+		It("should eventually update the ServiceExport status", func() {
+			t.createService()
+			t.createServiceExport()
+			t.awaitServiceExported()
+		})
+	})
+
 })

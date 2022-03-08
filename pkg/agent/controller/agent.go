@@ -20,11 +20,6 @@ package controller
 import (
 	"context"
 	"fmt"
-	"github.com/submariner-io/lighthouse/pkg/lhutil"
-	"github.com/submariner-io/lighthouse/pkg/mcs"
-	"reflect"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
-
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/submariner-io/admiral/pkg/log"
@@ -33,6 +28,8 @@ import (
 	"github.com/submariner-io/admiral/pkg/syncer/broker"
 	"github.com/submariner-io/admiral/pkg/util"
 	lhconstants "github.com/submariner-io/lighthouse/pkg/constants"
+	"github.com/submariner-io/lighthouse/pkg/lhutil"
+	"github.com/submariner-io/lighthouse/pkg/mcs"
 	corev1 "k8s.io/api/core/v1"
 	discovery "k8s.io/api/discovery/v1beta1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -42,6 +39,8 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/util/retry"
+	"reflect"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	mcsv1a1 "sigs.k8s.io/mcs-api/pkg/apis/v1alpha1"
 )
 
@@ -542,11 +541,11 @@ func (a *Controller) serviceToRemoteServiceExport(obj runtime.Object, _ int, op 
 func (a *Controller) updateExportedServiceStatus(name, namespace string,
 	conditionType mcsv1a1.ServiceExportConditionType, status corev1.ConditionStatus, reason, msg string) {
 
-	logger.V(log.DEBUG).Info("updateExportedServiceStatus",
-		"namespace", namespace, "name", name,
-		"type", mcsv1a1.ServiceExportValid, "status", status, "reason", reason, "message", msg)
-
 	retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		logger.V(log.DEBUG).Info("updateExportedServiceStatus",
+			"namespace", namespace, "name", name,
+			"type", mcsv1a1.ServiceExportValid, "status", status, "reason", reason, "message", msg)
+
 		toUpdate, err := a.getServiceExport(name, namespace)
 		if apierrors.IsNotFound(err) {
 			logger.Info("ServiceExport not found - unable to update status", "namespace", namespace, "name", name)
@@ -581,16 +580,20 @@ func (a *Controller) updateExportedServiceStatus(name, namespace string,
 
 		raw, err := resource.ToUnstructured(toUpdate)
 		if err != nil {
-			return errors.Wrap(err, "error converting resource")
+			err := errors.Wrap(err, "error converting resource")
+			logger.V(log.DEBUG).Info(err.Error())
+			return err
 		}
 
 		_, err = a.serviceExportClient.Namespace(toUpdate.Namespace).UpdateStatus(context.TODO(), raw, metav1.UpdateOptions{})
 
 		if err != nil {
-			logger.Info("Failed to update service export status", "error", err)
+			err := errors.Wrap(err, "Failed updating service export")
+			logger.V(log.DEBUG).Info(err.Error())
+			return err
 		}
 
-		return errors.Wrap(err, "error from UpdateStatus")
+		return nil
 	})
 
 	if retryErr != nil {
