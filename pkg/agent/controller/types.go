@@ -18,6 +18,7 @@ limitations under the License.
 package controller
 
 import (
+	"github.com/submariner-io/admiral/pkg/federate"
 	"sync"
 
 	"github.com/submariner-io/admiral/pkg/syncer"
@@ -42,6 +43,11 @@ type Controller struct {
 	endpointSliceSyncer           *broker.Syncer
 	serviceSyncer                 syncer.Interface
 	serviceImportController       *ServiceImportController
+	localClient                   dynamic.Interface
+	localFederator                federate.Federator
+	brokerClient                  dynamic.Interface
+	brokerFederator               federate.Federator
+	brokerNamespace               string
 }
 
 type AgentSpecification struct {
