@@ -822,11 +822,12 @@ func (t *testDriver) endpointIPs() []string {
 	return ips
 }
 
-func newServiceExportCondition(condType mcsv1a1.ServiceExportConditionType, status corev1.ConditionStatus, reason string) *mcsv1a1.ServiceExportCondition {
+func newServiceExportCondition(condType mcsv1a1.ServiceExportConditionType, status corev1.ConditionStatus,
+	reason controller.ServiceExportConditionReason) *mcsv1a1.ServiceExportCondition {
 	return &mcsv1a1.ServiceExportCondition{
 		Type:   condType,
 		Status: status,
-		Reason: &reason,
+		Reason: (*string)(&reason),
 	}
 }
 

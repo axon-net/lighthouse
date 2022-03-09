@@ -43,10 +43,12 @@ import (
 	mcsv1a1 "sigs.k8s.io/mcs-api/pkg/apis/v1alpha1"
 )
 
+type ServiceExportConditionReason string
+
 const (
-	ReasonServiceUnavailable     = "ServiceUnavailable"
-	ReasonAwaitingSync           = "AwaitingSync"
-	ReasonUnsupportedServiceType = "UnsupportedServiceType"
+	ReasonServiceUnavailable     ServiceExportConditionReason = "ServiceUnavailable"
+	ReasonAwaitingSync           ServiceExportConditionReason = "AwaitingSync"
+	ReasonUnsupportedServiceType ServiceExportConditionReason = "UnsupportedServiceType"
 )
 
 type AgentConfig struct {
@@ -58,6 +60,7 @@ type AgentConfig struct {
 }
 
 var (
+	// MaxExportStatusConditions Maximum number of conditions to keep in ServiceExport.Status at the spoke (FIFO)
 	MaxExportStatusConditions = 10
 	logger                    = logf.Log.WithName("agent")
 )
@@ -88,7 +91,6 @@ func New(spec *AgentSpecification, syncerConf broker.SyncerConfig, kubeClientSet
 			LocalSourceNamespace: metav1.NamespaceAll,
 			LocalResourceType:    &discovery.EndpointSlice{},
 			LocalShouldProcess:   agentController.endpointSliceSyncerShouldProcessResource,
-			//LocalTransform:       agentController.filterLocalEndpointSlices,
 			LocalResourcesEquivalent: func(obj1, obj2 *unstructured.Unstructured) bool {
 				return false
 			},
@@ -439,7 +441,7 @@ func (a *Controller) serviceExportDownloadTransform(obj runtime.Object, _ int, o
 	// update conflict status in local service export to reflect broker's state.
 	// use own clock instead of broker's clock for time consistency with other status updates
 	a.updateExportedServiceStatus(originName, originNamespace,
-		conflictCondition.Type, conflictCondition.Status, *conflictCondition.Reason, *conflictCondition.Message)
+		conflictCondition.Type, conflictCondition.Status, ServiceExportConditionReason(*conflictCondition.Reason), *conflictCondition.Message)
 
 	return nil, false
 }
@@ -456,10 +458,10 @@ func GetServiceExportCondition(status *mcsv1a1.ServiceExportStatus, conditionTyp
 	return nil
 }
 
-func getLastExportConditionReason(svcExport *mcsv1a1.ServiceExport) string {
+func getLastExportConditionReason(svcExport *mcsv1a1.ServiceExport) ServiceExportConditionReason {
 	numCond := len(svcExport.Status.Conditions)
 	if numCond > 0 && svcExport.Status.Conditions[numCond-1].Reason != nil {
-		return *svcExport.Status.Conditions[numCond-1].Reason
+		return ServiceExportConditionReason(*svcExport.Status.Conditions[numCond-1].Reason)
 	}
 
 	return ""
@@ -538,7 +540,8 @@ func (a *Controller) serviceToRemoteServiceExport(obj runtime.Object, _ int, op 
 }
 
 func (a *Controller) updateExportedServiceStatus(name, namespace string,
-	conditionType mcsv1a1.ServiceExportConditionType, status corev1.ConditionStatus, reason, msg string) {
+	conditionType mcsv1a1.ServiceExportConditionType, status corev1.ConditionStatus,
+	reason ServiceExportConditionReason, msg string) {
 
 	retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		logger.V(log.DEBUG).Info("updateExportedServiceStatus",
@@ -558,7 +561,7 @@ func (a *Controller) updateExportedServiceStatus(name, namespace string,
 			Type:               conditionType,
 			Status:             status,
 			LastTransitionTime: &now,
-			Reason:             &reason,
+			Reason:             (*string)(&reason),
 			Message:            &msg,
 		}
 
@@ -705,7 +708,8 @@ func (a *Controller) getIngressIP(name, namespace string) (*IngressIP, bool) {
 	return parseIngressIP(obj), true
 }
 
-func (a *Controller) handleServiceExportTransformError(err error, svcExport *mcsv1a1.ServiceExport, reason string, errMessage string) {
+func (a *Controller) handleServiceExportTransformError(err error, svcExport *mcsv1a1.ServiceExport,
+	reason ServiceExportConditionReason, errMessage string) {
 	logger.Error(err, "ServiceExport transform failed: "+errMessage,
 		"name", svcExport.Name, "namespace", svcExport.Namespace)
 	a.updateExportedServiceStatus(svcExport.Name, svcExport.Namespace,
