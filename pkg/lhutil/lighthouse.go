@@ -91,13 +91,12 @@ func ServiceExportListFilter(objmd metav1.ObjectMeta) (*client.ListOptions, erro
 }
 
 func GetServiceExportCondition(status *mcsv1a1.ServiceExportStatus, ct mcsv1a1.ServiceExportConditionType) *mcsv1a1.ServiceExportCondition {
-	for i := range status.Conditions {
-		// iterate in reverse to get the last condition of the requested type
-		// (assuming new conditions are appended at the end of slice)
-		c := status.Conditions[len(status.Conditions)-1-i]
-		if c.Type == ct {
-			return &c
+	var latestCond *mcsv1a1.ServiceExportCondition = nil
+	for _, c := range status.Conditions {
+		if c.Type == ct && (latestCond == nil || !c.LastTransitionTime.Before(latestCond.LastTransitionTime)) {
+			latestCond = &c
 		}
 	}
-	return nil
+
+	return latestCond
 }
