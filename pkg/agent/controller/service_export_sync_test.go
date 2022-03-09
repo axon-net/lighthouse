@@ -56,7 +56,7 @@ var _ = Describe("ServiceExport syncing", func() {
 		})
 
 		When("the Service doesn't initially exist", func() {
-			It("should initially update the ServiceExport status to Valid and upload after service is created", func() {
+			It("should initially update the ServiceExport status to not Valid and upload after service is created", func() {
 				t.createServiceExport()
 				t.awaitServiceUnavailableStatus()
 				t.awaitNoServiceExportOnBroker()
@@ -155,12 +155,12 @@ var _ = Describe("ServiceExport syncing", func() {
 		BeforeEach(func() {
 			t.service.Spec.Ports = []corev1.ServicePort{
 				{
-					Name:     "eth0",
+					Name:     "port_name1",
 					Protocol: corev1.ProtocolTCP,
 					Port:     123,
 				},
 				{
-					Name:     "eth1",
+					Name:     "port_name2",
 					Protocol: corev1.ProtocolSCTP,
 					Port:     1234,
 				},

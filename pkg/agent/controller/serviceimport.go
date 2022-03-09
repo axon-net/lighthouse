@@ -45,8 +45,8 @@ func newServiceImportController(spec *AgentSpecification, serviceSyncer syncer.I
 
 	var err error
 
-	// this syncer is responsible for watching local service imports
-	// an endpoint controller will be created for each service import
+	// this syncer is responsible for watching local service imports (for cluster-local exports).
+	// an endpoint controller is created for each service import
 	// the endpoint controller creates a local endpoint slice for each endpoint
 	controller.serviceImportSyncer, err = syncer.NewResourceSyncer(&syncer.ResourceSyncerConfig{
 		Name:            "ServiceImport watcher",
