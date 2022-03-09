@@ -676,60 +676,6 @@ func (t *testDriver) assertServiceExportStatus(se *mcsv1a1.ServiceExport, atInde
 	}
 }
 
-//func (t *testDriver) awaitServiceExportStatus(client *fake.DynamicResourceClient, exportName string,
-//	atIndex int, expCond ...*mcsv1a1.ServiceExportCondition) {
-//	var found *mcsv1a1.ServiceExport
-//
-//	err := wait.PollImmediate(50*time.Millisecond, 5*time.Second, func() (bool, error) {
-//		obj, err := client.Get(context.TODO(), exportName, metav1.GetOptions{})
-//		if err != nil {
-//			if apierrors.IsNotFound(err) {
-//				return false, nil
-//			}
-//			return false, err
-//		}
-//
-//		se := &mcsv1a1.ServiceExport{}
-//		Expect(scheme.Scheme.Convert(obj, se, nil)).To(Succeed())
-//
-//		found = se
-//
-//		if (atIndex + len(expCond)) > len(se.Status.Conditions) {
-//			return false, nil
-//		}
-//
-//		j := atIndex
-//		for _, exp := range expCond {
-//			actual := se.Status.Conditions[j]
-//			j++
-//			Expect(actual.Type).To(Equal(exp.Type))
-//			Expect(actual.Status).To(Equal(exp.Status))
-//			Expect(actual.LastTransitionTime).To(Not(BeNil()))
-//			Expect(actual.Reason).To(Not(BeNil()))
-//			Expect(*actual.Reason).To(Equal(*exp.Reason))
-//			Expect(actual.Message).To(Not(BeNil()))
-//
-//			if exp.Message != nil {
-//				Expect(*actual.Message).To(Equal(*exp.Message))
-//			}
-//		}
-//
-//		return true, nil
-//	})
-//
-//	if errors.Is(err, wait.ErrWaitTimeout) {
-//		if found == nil {
-//			Fail("ServiceExport not found")
-//		}
-//
-//		Fail(format.Message(found.Status.Conditions,
-//			fmt.Sprintf("with %d conditions to contain at index %d",
-//				len(found.Status.Conditions), atIndex), expCond))
-//	} else {
-//		Expect(err).To(Succeed())
-//	}
-//}
-
 func (t *testDriver) awaitNotServiceExportStatus(notCond *mcsv1a1.ServiceExportCondition) {
 	err := wait.PollImmediate(50*time.Millisecond, 300*time.Millisecond, func() (bool, error) {
 		obj, err := t.cluster1.localServiceExportClient.Get(context.TODO(), t.service.Name, metav1.GetOptions{})
@@ -783,13 +729,6 @@ func (t *testDriver) awaitHeadlessServiceImport() {
 	t.cluster1.awaitServiceImport(t.service, mcsv1a1.Headless, serviceIP)
 	t.cluster2.awaitServiceImport(t.service, mcsv1a1.Headless, serviceIP)
 }
-
-//func (t *testDriver) awaitServiceUnexported() {
-//	//t.awaitNoServiceImport(t.brokerServiceImportClient)
-//	//t.awaitNoServiceImport(t.cluster1.localServiceImportClient)
-//	//t.awaitNoServiceImport(t.cluster2.localServiceImportClient)
-//	t.awaitNoServiceExportOnBroker()
-//}
 
 func (t *testDriver) awaitHeadlessServiceUnexported() {
 	t.awaitNoServiceExportOnBroker()
