@@ -97,6 +97,8 @@ func (e *EndpointController) cleanup() {
 		Version: "v1beta1", Resource: "endpointslices",
 	}).Namespace(e.serviceImportSourceNameSpace)
 
+	objLogger := logger.WithValues("importName", e.serviceImportName)
+
 	// MCS-compliant labels
 	err := resourceClient.DeleteCollection(context.TODO(), metav1.DeleteOptions{}, metav1.ListOptions{
 		LabelSelector: labels.SelectorFromSet(map[string]string{
@@ -107,7 +109,7 @@ func (e *EndpointController) cleanup() {
 	})
 
 	if err != nil && !apierrors.IsNotFound(err) {
-		logger.Error(err, "Error deleting the EndpointSlices associated with ServiceImport", "name", e.serviceImportName)
+		objLogger.Error(err, "Error deleting the EndpointSlices associated with ServiceImport")
 	}
 
 	// Lighthouse-proprietary labels
@@ -120,7 +122,7 @@ func (e *EndpointController) cleanup() {
 	})
 
 	if err != nil && !apierrors.IsNotFound(err) {
-		logger.Error(err, "Error deleting the EndpointSlices associated with ServiceImport", "name", e.serviceImportName)
+		objLogger.Error(err, "Error deleting the EndpointSlices associated with ServiceImport")
 	}
 }
 
@@ -129,8 +131,10 @@ func (e *EndpointController) endpointsToEndpointSlice(obj runtime.Object, numReq
 
 	endpointSliceName := endPoints.Name + "-" + e.clusterID
 
+	objLogger := logger.WithValues("name", endPoints.Namespace+"/"+endPoints.Name)
+
 	if op == syncer.Delete {
-		logger.V(log.DEBUG).Info("Endpoints deleted", "namespace", endPoints.Namespace, "name", endPoints.Name)
+		objLogger.V(log.DEBUG).Info("Endpoints deleted")
 
 		return &discovery.EndpointSlice{
 			ObjectMeta: metav1.ObjectMeta{
@@ -141,9 +145,9 @@ func (e *EndpointController) endpointsToEndpointSlice(obj runtime.Object, numReq
 	}
 
 	if op == syncer.Create {
-		logger.V(log.DEBUG).Info("Endpoints created", "name", endPoints.Namespace, "namespace", endPoints.Name)
+		objLogger.V(log.DEBUG).Info("Endpoints created")
 	} else {
-		logger.V(log.TRACE).Info("Endpoints updated", "name", endPoints.Namespace, "namespace", endPoints.Name)
+		objLogger.V(log.TRACE).Info("Endpoints updated")
 	}
 
 	return e.endpointSliceFromEndpoints(endPoints, op)

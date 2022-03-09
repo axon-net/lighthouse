@@ -46,6 +46,7 @@ import (
 type ServiceExportConditionReason string
 
 const (
+	ReasonEmpty                  ServiceExportConditionReason = "NA"
 	ReasonServiceUnavailable     ServiceExportConditionReason = "ServiceUnavailable"
 	ReasonAwaitingSync           ServiceExportConditionReason = "AwaitingSync"
 	ReasonUnsupportedServiceType ServiceExportConditionReason = "UnsupportedServiceType"
@@ -339,8 +340,9 @@ func (a *Controller) localServiceImportLister() []runtime.Object {
 func (a *Controller) serviceExportUploadTransform(serviceExportObj runtime.Object, _ int, op syncer.Operation) (runtime.Object, bool) {
 	localServiceExport := serviceExportObj.(*mcsv1a1.ServiceExport)
 
-	logger.V(log.DEBUG).Info(
-		fmt.Sprintf("Local ServiceExport %s/%s %sd", localServiceExport.Namespace, localServiceExport.Name, op))
+	seLog := logger.WithValues("name", localServiceExport.Namespace+"/"+localServiceExport.Name)
+	seLog.V(log.DEBUG).Info(
+		fmt.Sprintf("Local ServiceExport %sd", op))
 
 	brokerServiceExport := a.newServiceExport(localServiceExport.Name, localServiceExport.Namespace)
 	if op == syncer.Delete {
@@ -405,7 +407,7 @@ func (a *Controller) serviceExportUploadTransform(serviceExportObj runtime.Objec
 		mcsv1a1.ServiceExportValid, corev1.ConditionFalse, ReasonAwaitingSync,
 		"Awaiting sync of the ServiceExport to the broker")
 
-	logger.V(log.TRACE).Info("Returning ServiceExport:\n" + PrettyPrint(brokerServiceExport))
+	seLog.V(log.TRACE).Info("Returning ServiceExport:\n" + PrettyPrint(brokerServiceExport))
 
 	return brokerServiceExport, false
 }
@@ -496,7 +498,7 @@ func (a *Controller) onSuccessfulServiceExportSync(synced runtime.Object, op syn
 	a.updateExportedServiceStatus(
 		annotations[lhconstants.OriginName],
 		annotations[lhconstants.OriginNamespace],
-		mcsv1a1.ServiceExportValid, corev1.ConditionTrue, "",
+		mcsv1a1.ServiceExportValid, corev1.ConditionTrue, ReasonEmpty,
 		"ServiceExport was successfully synced to the broker")
 }
 
@@ -507,31 +509,31 @@ func (a *Controller) serviceSyncerShouldProcessResource(_ *unstructured.Unstruct
 	return op == syncer.Delete
 }
 
-func (a *Controller) serviceToRemoteServiceExport(obj runtime.Object, _ int, op syncer.Operation) (runtime.Object, bool) {
+func (a *Controller) serviceToRemoteServiceExport(svcObj runtime.Object, _ int, op syncer.Operation) (runtime.Object, bool) {
 	if op != syncer.Delete {
 		// Ignore create/update
 		return nil, false
 	}
 
-	svc := obj.(*corev1.Service)
-	logger.V(log.DEBUG).Info("Service deleted", "name", svc.Name, "namespace", svc.Namespace)
+	svc := svcObj.(*corev1.Service)
+	svcLog := logger.WithValues("service", svc.Name+"/"+svc.Namespace)
+	svcLog.V(log.DEBUG).Info("Service deleted")
 
-	obj, found, err := a.serviceExportUploader.GetResource(svc.Name, svc.Namespace)
+	seObj, found, err := a.serviceExportUploader.GetResource(svc.Name, svc.Namespace)
 	if err != nil {
 		// some other error. Log and requeue
-		logger.Error(err, "Error retrieving ServiceExport for Service", "name", svc.Name, "namespace", svc.Namespace)
+		svcLog.Error(err, "Error retrieving ServiceExport for Service")
 		return nil, true
 	}
 
 	if !found {
-		logger.V(log.DEBUG).Info("ServiceExport not found for deleted service", "name", svc.Name, "namespace", svc.Namespace)
+		svcLog.V(log.DEBUG).Info("ServiceExport not found for deleted service")
 		return nil, false
 	}
 
-	localServiceExport := obj.(*mcsv1a1.ServiceExport)
+	localServiceExport := seObj.(*mcsv1a1.ServiceExport)
 
-	logger.V(log.DEBUG).Info("ServiceExport found for deleted service, will delete broker's copy",
-		"name", localServiceExport.Name, "namespace", localServiceExport.Namespace)
+	svcLog.V(log.DEBUG).Info("ServiceExport found for deleted service, will delete broker's copy")
 
 	// rename the service export to expected name on broker so that federator can find and delete it
 	brokerServiceExport := a.newServiceExport(localServiceExport.Name, localServiceExport.Namespace)
@@ -548,14 +550,18 @@ func (a *Controller) updateExportedServiceStatus(name, namespace string,
 	conditionType mcsv1a1.ServiceExportConditionType, status corev1.ConditionStatus,
 	reason ServiceExportConditionReason, msg string) {
 
+	seLog := logger.WithValues("name", namespace+"/"+name)
+
 	retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		logger.V(log.DEBUG).Info("updateExportedServiceStatus",
-			"namespace", namespace, "name", name,
-			"type", mcsv1a1.ServiceExportValid, "status", status, "reason", reason, "message", msg)
+		seLog.V(log.DEBUG).Info("Updating local service export status",
+			"type", mcsv1a1.ServiceExportValid,
+			"status", status,
+			"reason", reason,
+			"message", msg)
 
 		toUpdate, err := a.getServiceExport(name, namespace)
 		if apierrors.IsNotFound(err) {
-			logger.Info("ServiceExport not found - unable to update status", "namespace", namespace, "name", name)
+			seLog.Info("ServiceExport not found - unable to update status")
 			return nil
 		} else if err != nil {
 			return err
@@ -572,8 +578,9 @@ func (a *Controller) updateExportedServiceStatus(name, namespace string,
 
 		numCond := len(toUpdate.Status.Conditions)
 		if numCond > 0 && serviceExportConditionEqual(&toUpdate.Status.Conditions[numCond-1], &exportCondition) {
-			logger.V(log.TRACE).Info("Last ServiceExportCondition equal - not updating status",
-				"namespace", namespace, "name", name, "condition", toUpdate.Status.Conditions[numCond-1])
+			lastCond := toUpdate.Status.Conditions[numCond-1]
+			seLog.V(log.TRACE).Info("Last ServiceExportCondition equal - not updating status",
+				"condition", lastCond)
 			return nil
 		}
 
@@ -595,7 +602,7 @@ func (a *Controller) updateExportedServiceStatus(name, namespace string,
 
 		if err != nil {
 			err := errors.Wrap(err, "Failed updating service export")
-			logger.V(log.DEBUG).Info(err.Error()) // ensure this is logged in case of a conflict
+			seLog.V(log.DEBUG).Info(err.Error()) // ensure this is logged in case of a conflict
 			return err
 		}
 
@@ -603,7 +610,7 @@ func (a *Controller) updateExportedServiceStatus(name, namespace string,
 	})
 
 	if retryErr != nil {
-		logger.Error(retryErr, "Error updating status for ServiceExport", "namespace", namespace, "name", name)
+		seLog.Error(retryErr, "Error updating status for ServiceExport")
 	}
 }
 
@@ -715,7 +722,7 @@ func (a *Controller) getIngressIP(name, namespace string) (*IngressIP, bool) {
 func (a *Controller) handleServiceExportTransformError(err error, svcExport *mcsv1a1.ServiceExport,
 	reason ServiceExportConditionReason, errMessage string) {
 	logger.Error(err, "ServiceExport transform failed: "+errMessage,
-		"name", svcExport.Name, "namespace", svcExport.Namespace)
+		"name", svcExport.Name+"/"+svcExport.Namespace)
 	a.updateExportedServiceStatus(svcExport.Name, svcExport.Namespace,
 		mcsv1a1.ServiceExportValid, corev1.ConditionFalse, reason, errMessage)
 }

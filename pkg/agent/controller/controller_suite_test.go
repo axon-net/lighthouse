@@ -766,7 +766,7 @@ func (t *testDriver) awaitServiceExported() {
 	//t.awaitBrokerServiceImport(mcsv1a1.ClusterSetIP, serviceIP)
 	//t.cluster2.awaitServiceImport(t.service, mcsv1a1.ClusterSetIP, serviceIP)
 
-	condition := newServiceExportCondition(mcsv1a1.ServiceExportValid, corev1.ConditionTrue, "")
+	condition := newServiceExportCondition(mcsv1a1.ServiceExportValid, corev1.ConditionTrue, controller.ReasonEmpty)
 	t.awaitLocalServiceExport(condition)
 
 	brokerExport := t.awaitBrokerServiceExport(nil)
