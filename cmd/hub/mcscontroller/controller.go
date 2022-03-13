@@ -22,12 +22,15 @@ import (
 	"context"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/mcs-api/pkg/apis/v1alpha1"
 	mcsv1a1 "sigs.k8s.io/mcs-api/pkg/apis/v1alpha1"
 
 	"github.com/submariner-io/lighthouse/pkg/lhutil"
@@ -139,13 +142,14 @@ func (r *ServiceExportReconciler) reconcile(ctx context.Context, name types.Name
 			return ctrl.Result{}, err
 		}
 		err = exportSpec.IsCompatibleWith(primaryEs)
-		if err == nil { //@mytodo check this warning
-			//se.Status.Conditions[0].Status updating status - seems like a weird Conditions array..
-			//se.Status.Conflict = false -- @mytodo check
+		if err == nil {
+			lhutil.UpdateExportedServiceStatus(name.Name, name.Namespace, r.Client, r.Scheme,
+				mcsv1a1.ServiceExportValid, corev1.ConditionTrue, "", "ServiceExport was successfully added to the broker")
 			r.ensureImportFor(&se)
-
 		} else {
-			//se.Status.Conflict = true
+			//@mytodo - check if we want ot enter somekind of reason here:
+			lhutil.UpdateExportedServiceStatus(name.Name, name.Namespace, r.Client, r.Scheme,
+				mcsv1a1.ServiceExportConflict, corev1.ConditionTrue, "", err.Error())
 			//delete SI if exists
 		}
 	}
@@ -211,8 +215,26 @@ func (r *ServiceExportReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 // create or update the ServiceImport corresponding to the provided export.
 func (r *ServiceExportReconciler) ensureImportFor(se *mcsv1a1.ServiceExport) error {
-	//---------------------
-	//-- @TODO IMPLEMENT --
-	//---------------------
+
+	//create new one:
+	es := &mcs.ExportSpec{}
+	err := es.UnmarshalObjectMeta(&se.ObjectMeta)
+	if err != nil {
+		return err
+	}
+	si := mcsv1a1.ServiceImport{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: es.Namespace,
+			Name:      es.Name,
+		},
+		Spec: v1alpha1.ServiceImportSpec{
+			Type:  es.Service.Type,
+			Ports: es.Service.Ports,
+		},
+		//Status - not sure if I need to initialize it
+	}
+
+	//update existing one:
+
 	return nil
 }
