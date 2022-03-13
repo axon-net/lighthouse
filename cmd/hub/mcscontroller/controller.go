@@ -31,6 +31,7 @@ import (
 	mcsv1a1 "sigs.k8s.io/mcs-api/pkg/apis/v1alpha1"
 
 	"github.com/submariner-io/lighthouse/pkg/lhutil"
+	"github.com/submariner-io/lighthouse/pkg/mcs"
 )
 
 const (
@@ -72,6 +73,8 @@ func (r *ServiceExportReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		}
 		return ctrl.Result{}, nil
 	}
+	// @mytodo check if its ok that the message is after Get, and should it replace the original one? Change to exportSpecs(by get annotatins?)
+	log.Info("Reconciling ServiceExport %s from namespace %s in cluster %s", se.Name, se.Namespace, se.ClusterName)
 
 	if !controllerutil.ContainsFinalizer(se, serviceExportFinalizerName) && se.GetDeletionTimestamp() == nil {
 		controllerutil.AddFinalizer(se, serviceExportFinalizerName)
@@ -118,13 +121,56 @@ func (r *ServiceExportReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 //	 automatically deleted by k8s when their ServiceExport is deleted.
 //
 func (r *ServiceExportReconciler) reconcile(ctx context.Context, name types.NamespacedName) (ctrl.Result, error) {
-	_ = r.Log.WithValues("service", name)
+	log := r.Log.WithValues("service", name)
 
+	var exportList mcsv1a1.ServiceExportList
+	//@mytodo check about adding client.InNamespace(name.Namespace)
+	if err := r.Client.List(ctx, &exportList, client.MatchingLabels{"name": name.Name, "namespace": name.Namespace}); err != nil {
+		log.Error(err, "unable to list service's service export")
+		return ctrl.Result{}, err
+	}
+	primaryEs := getPrimaryExportObject(exportList)
+
+	for _, se := range exportList.Items {
+		exportSpec := &mcs.ExportSpec{}
+		err := exportSpec.UnmarshalObjectMeta(&se.ObjectMeta)
+		if err != nil {
+
+		}
+		if exportSpec.IsCompatibleWith(primaryEs) {
+
+		}
+	}
 	//------------------------------------------
 	// -- @TODO CODE ABOVE SPECIFIED BEHAVIOR --
 	//------------------------------------------
 
 	return ctrl.Result{}, nil
+}
+
+// getPrimaryExportObject finds the Primary ExportSpec from ServiceExportList.
+// Retruns the ExportSpec object that determined as the primary one from
+// the given ServiceExportList according to the conflict resolution specification set in the
+// KEP, that is implemented in IsPreferredOver method of ExportSpec.
+func getPrimaryExportObject(exportList mcsv1a1.ServiceExportList) (*mcs.ExportSpec, error) {
+	var primary *mcs.ExportSpec
+	/*TO PR review - I thought that the most elegant way without duplicating code to much is
+	  to add i and check if its the first run it would set primary as the first one.
+	  alternatives:
+	  1.use flag - might be easier to read/understand(?). feels to me less elegant - (firstRun)
+	  2.duplicate code - be more efficent, but I don't think its a good option..
+	*/
+	for i, se := range exportList.Items {
+		exportSpec := &mcs.ExportSpec{}
+		err := exportSpec.UnmarshalObjectMeta(&se.ObjectMeta)
+		if err != nil {
+			return nil, err
+		}
+		if i == 0 || exportSpec.IsPreferredOver(primary) {
+			primary = exportSpec
+		}
+	}
+	return primary, nil
 }
 
 // allow the object to be deleted by removing the finalizer.
