@@ -124,27 +124,31 @@ func (r *ServiceExportReconciler) reconcile(ctx context.Context, name types.Name
 	log := r.Log.WithValues("service", name)
 
 	var exportList mcsv1a1.ServiceExportList
-	//@mytodo check about adding client.InNamespace(name.Namespace)
 	if err := r.Client.List(ctx, &exportList, client.MatchingLabels{"name": name.Name, "namespace": name.Namespace}); err != nil {
 		log.Error(err, "unable to list service's service export")
 		return ctrl.Result{}, err
 	}
-	primaryEs := getPrimaryExportObject(exportList)
-
+	primaryEs, err := getPrimaryExportObject(exportList)
+	if err != nil {
+		return ctrl.Result{}, nil
+	}
 	for _, se := range exportList.Items {
 		exportSpec := &mcs.ExportSpec{}
 		err := exportSpec.UnmarshalObjectMeta(&se.ObjectMeta)
 		if err != nil {
-
+			return ctrl.Result{}, err
 		}
-		if exportSpec.IsCompatibleWith(primaryEs) {
+		err = exportSpec.IsCompatibleWith(primaryEs)
+		if err == nil { //@mytodo check this warning
+			//se.Status.Conditions[0].Status updating status - seems like a weird Conditions array..
+			//se.Status.Conflict = false -- @mytodo check
+			r.ensureImportFor(&se)
 
+		} else {
+			//se.Status.Conflict = true
+			//delete SI if exists
 		}
 	}
-	//------------------------------------------
-	// -- @TODO CODE ABOVE SPECIFIED BEHAVIOR --
-	//------------------------------------------
-
 	return ctrl.Result{}, nil
 }
 
@@ -152,6 +156,7 @@ func (r *ServiceExportReconciler) reconcile(ctx context.Context, name types.Name
 // Retruns the ExportSpec object that determined as the primary one from
 // the given ServiceExportList according to the conflict resolution specification set in the
 // KEP, that is implemented in IsPreferredOver method of ExportSpec.
+// TO PR review - maybe rename to getPrimaryExportSpecObject(?)
 func getPrimaryExportObject(exportList mcsv1a1.ServiceExportList) (*mcs.ExportSpec, error) {
 	var primary *mcs.ExportSpec
 	/*TO PR review - I thought that the most elegant way without duplicating code to much is
