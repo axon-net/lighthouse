@@ -23,6 +23,7 @@ import (
 	"github.com/submariner-io/admiral/pkg/syncer"
 	"github.com/submariner-io/admiral/pkg/syncer/broker"
 	"github.com/submariner-io/admiral/pkg/watcher"
+	"github.com/submariner-io/lighthouse/pkg/importpolicy"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -41,6 +42,7 @@ type Controller struct {
 	endpointSliceSyncer     *broker.Syncer
 	serviceSyncer           syncer.Interface
 	serviceImportController *ServiceImportController
+	importPolicyController  *importpolicy.Controller
 }
 
 type AgentSpecification struct {

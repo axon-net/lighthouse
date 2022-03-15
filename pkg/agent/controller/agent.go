@@ -30,6 +30,7 @@ import (
 	"github.com/submariner-io/admiral/pkg/syncer/broker"
 	"github.com/submariner-io/admiral/pkg/util"
 	lhconstants "github.com/submariner-io/lighthouse/pkg/constants"
+	"github.com/submariner-io/lighthouse/pkg/importpolicy"
 	corev1 "k8s.io/api/core/v1"
 	discovery "k8s.io/api/discovery/v1beta1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -73,6 +74,21 @@ func New(spec *AgentSpecification, syncerConf broker.SyncerConfig, kubeClientSet
 
 	agentController.serviceExportClient = syncerConf.LocalClient.Resource(*gvr)
 
+	policyRuleset := importpolicy.New()
+	agentController.importPolicyController =
+		importpolicy.NewController(spec.ClusterID, policyRuleset, syncerConf.LocalRestConfig)
+	policyBasedImportTransform := func(obj runtime.Object, numRequeues int, op syncer.Operation) (runtime.Object, bool) {
+		serviceImport := obj.(*mcsv1a1.ServiceImport)
+		klog.Infof("Applying policy transform to %s", serviceImport.GetName())
+		result, status := policyRuleset.ApplyPolicy(serviceImport)
+		if status == false {
+			klog.Infof("No policies match %s, discarding", serviceImport.GetName())
+			return nil, false
+		}
+		klog.Infof("Syncing ServiceImport after policy transform %v", result)
+		return result, false
+	}
+
 	syncerConf.LocalNamespace = spec.Namespace
 	syncerConf.LocalClusterID = spec.ClusterID
 
@@ -80,6 +96,7 @@ func New(spec *AgentSpecification, syncerConf broker.SyncerConfig, kubeClientSet
 		{
 			LocalSourceNamespace: metav1.NamespaceAll,
 			LocalResourceType:    &mcsv1a1.ServiceImport{},
+			BrokerTransform:      policyBasedImportTransform,
 			BrokerResourceType:   &mcsv1a1.ServiceImport{},
 			SyncCounterOpts: &prometheus.GaugeOpts{
 				Name: syncerMetricNames.ServiceImportCounterName,
@@ -177,6 +194,10 @@ func (a *Controller) Start(stopCh <-chan struct{}) error {
 
 	if err := a.serviceImportSyncer.Start(stopCh); err != nil {
 		return errors.Wrap(err, "error starting ServiceImport syncer")
+	}
+
+	if err := a.importPolicyController.Start(stopCh); err != nil {
+		return errors.Wrap(err, "error starting the ImportPolicy controller")
 	}
 
 	if err := a.serviceImportController.start(stopCh); err != nil {
