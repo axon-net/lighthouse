@@ -22,6 +22,8 @@ import (
 	"context"
 
 	"github.com/go-logr/logr"
+	"github.com/submariner-io/lighthouse/pkg/lhutil"
+	"github.com/submariner-io/lighthouse/pkg/mcs"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -31,11 +33,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	mcsv1a1 "sigs.k8s.io/mcs-api/pkg/apis/v1alpha1"
-
-	//TO PR - check about how to choose import names?
-
-	"github.com/submariner-io/lighthouse/pkg/lhutil"
-	"github.com/submariner-io/lighthouse/pkg/mcs"
 )
 
 const (
@@ -78,8 +75,6 @@ func (r *ServiceExportReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		}
 		return ctrl.Result{}, nil
 	}
-	// @mytodo check if its ok that the message is after Get, and should it replace the original one? or to change to exportSpecs
-	log.Info("Reconciling ServiceExport %s from namespace %s in cluster %s", se.Name, se.Namespace, se.ClusterName)
 
 	if !controllerutil.ContainsFinalizer(se, serviceExportFinalizerName) && se.GetDeletionTimestamp() == nil {
 		controllerutil.AddFinalizer(se, serviceExportFinalizerName)
@@ -136,7 +131,7 @@ func (r *ServiceExportReconciler) reconcile(ctx context.Context, name types.Name
 	//2:
 	primaryEs, err := getPrimaryExportObject(exportList)
 	if err != nil {
-		return ctrl.Result{}, nil
+		return ctrl.Result{}, err
 	}
 	//3:
 	for _, se := range exportList.Items {
@@ -156,7 +151,7 @@ func (r *ServiceExportReconciler) reconcile(ctx context.Context, name types.Name
 		if err != nil {
 			r.updateServiceExportConditions(ctx, &se, mcsv1a1.ServiceExportConflict, corev1.ConditionTrue, "", err.Error())
 			r.Client.Status().Update(ctx, &se)
-			//			r.mcsClient.UpdateStatus(ctx, &se, metav1.UpdateOptions{})
+			//r.mcsClient.UpdateStatus(ctx, &se, metav1.UpdateOptions{})
 			err = r.deleteImport(ctx, &se)
 			if err != nil {
 				return ctrl.Result{}, err
@@ -164,7 +159,7 @@ func (r *ServiceExportReconciler) reconcile(ctx context.Context, name types.Name
 		} else { //3c:
 			r.updateServiceExportConditions(ctx, &se, mcsv1a1.ServiceExportValid, corev1.ConditionTrue, "", "")
 			r.Client.Status().Update(ctx, &se)
-			//			se, err := r.mcsClient.UpdateStatus(ctx, &se, metav1.UpdateOptions{})
+			//se, err := r.mcsClient.UpdateStatus(ctx, &se, metav1.UpdateOptions{})
 			if err != nil {
 				return ctrl.Result{}, err
 			}
@@ -293,6 +288,7 @@ func (r *ServiceExportReconciler) deleteImport(ctx context.Context, se *mcsv1a1.
 }
 
 //update the condition field under serviceExport status
+//based on the already existing method in the agent - might move to lhutil
 func (r *ServiceExportReconciler) updateServiceExportConditions(ctx context.Context, se *mcsv1a1.ServiceExport,
 	conditionType mcsv1a1.ServiceExportConditionType, status corev1.ConditionStatus, reason string, msg string) error {
 	log := r.Log.WithValues("name", se.Namespace+"/"+se.Name)

@@ -29,7 +29,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	lhconst "github.com/submariner-io/lighthouse/pkg/constants"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 type ServiceExportConditionReason string
@@ -41,11 +40,8 @@ const (
 	ReasonUnsupportedServiceType ServiceExportConditionReason = "UnsupportedServiceType"
 )
 
-var (
-	// MaxExportStatusConditions Maximum number of conditions to keep in ServiceExport.Status at the spoke (FIFO)
-	MaxExportStatusConditions = 10
-	logger                    = logf.Log.WithName("agent")
-)
+// MaxExportStatusConditions Maximum number of conditions to keep in ServiceExport.Status at the spoke (FIFO)
+var MaxExportStatusConditions = 10
 
 // GenerateObjectName returns a canonical representation for a fully qualified object.
 // The name should be treated as opaque (i.e., no assumption on the order or
@@ -119,92 +115,6 @@ func GetServiceExportCondition(status *mcsv1a1.ServiceExportStatus, ct mcsv1a1.S
 	return latestCond
 }
 
-/*
-func UpdateExportedServiceStatus(name, namespace string, client client.Client, scheme *runtime.Scheme,
-	conditionType mcsv1a1.ServiceExportConditionType, status corev1.ConditionStatus,
-	reason ServiceExportConditionReason, msg string) {
-
-	seLog := logger.WithValues("name", namespace+"/"+name)
-
-	retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		seLog.V(log.DEBUG).Info("Updating local service export status",
-			"type", mcsv1a1.ServiceExportValid,
-			"status", status,
-			"reason", reason,
-			"message", msg)
-
-		toUpdate, err := getServiceExport(name, namespace, client, scheme)
-		if apierrors.IsNotFound(err) {
-			seLog.Info("ServiceExport not found - unable to update status")
-			return nil
-		} else if err != nil {
-			return err
-		}
-
-		now := metav1.Now()
-		exportCondition := mcsv1a1.ServiceExportCondition{
-			Type:               conditionType,
-			Status:             status,
-			LastTransitionTime: &now,
-			Reason:             (*string)(&reason),
-			Message:            &msg,
-		}
-
-		numCond := len(toUpdate.Status.Conditions)
-		if numCond > 0 && serviceExportConditionEqual(&toUpdate.Status.Conditions[numCond-1], &exportCondition) {
-			lastCond := toUpdate.Status.Conditions[numCond-1]
-			seLog.V(log.TRACE).Info("Last ServiceExportCondition equal - not updating status",
-				"condition", lastCond)
-			return nil
-		}
-
-		if numCond >= MaxExportStatusConditions {
-			copy(toUpdate.Status.Conditions[0:], toUpdate.Status.Conditions[1:])
-			toUpdate.Status.Conditions = toUpdate.Status.Conditions[:MaxExportStatusConditions]
-			toUpdate.Status.Conditions[MaxExportStatusConditions-1] = exportCondition
-		} else {
-			toUpdate.Status.Conditions = append(toUpdate.Status.Conditions, exportCondition)
-		}
-
-		raw, err := resource.ToUnstructured(toUpdate)
-		if err != nil {
-			err := errors.Wrap(err, "error converting resource")
-			return err
-		}
-		//a.serviceExportClient.Namespace
-		_, err = client.Namespace(toUpdate.Namespace).UpdateStatus(context.TODO(), raw, metav1.UpdateOptions{})
-
-		if err != nil {
-			err := errors.Wrap(err, "Failed updating service export")
-			seLog.V(log.DEBUG).Info(err.Error()) // ensure this is logged in case of a conflict
-			return err
-		}
-
-		return nil
-	})
-
-	if retryErr != nil {
-		seLog.Error(retryErr, "Error updating status for ServiceExport")
-	}
-}
-func getServiceExport(name, namespace string, client client.Client, scheme *runtime.Scheme) (*mcsv1a1.ServiceExport, error) {
-	obj, err := client.Namespace(namespace).Get(context.TODO(), name, metav1.GetOptions{})
-	if err != nil {
-		return nil, errors.Wrap(err, "error retrieving ServiceExport")
-	}
-
-	se := &mcsv1a1.ServiceExport{}
-
-	err = scheme.Convert(obj, se, nil)
-	if err != nil {
-		return nil, errors.WithMessagef(err, "Error converting %#v to ServiceExport", obj)
-	}
-
-	return se, nil
-}
-
-
-*/
 func ServiceExportConditionEqual(c1, c2 *mcsv1a1.ServiceExportCondition) bool {
 	return c1.Type == c2.Type && c1.Status == c2.Status && reflect.DeepEqual(c1.Reason, c2.Reason) &&
 		reflect.DeepEqual(c1.Message, c2.Message)

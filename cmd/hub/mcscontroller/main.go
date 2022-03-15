@@ -111,7 +111,7 @@ func main() {
 		Client: mgr.GetClient(),
 		Log:    ctrl.Log.WithName("controllers").WithName("ServiceExport"),
 		Scheme: mgr.GetScheme(),
-		//	mcsClient: mcClient.ServiceExports(namespace),
+		//mcsClient: mcClient.ServiceExports(namespace),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Unable to create controller", "controller", "ServiceExport")
 		os.Exit(1)
