@@ -19,24 +19,16 @@ limitations under the License.
 package lhutil
 
 import (
-	"context"
 	"fmt"
 	"reflect"
 
 	mcsv1a1 "sigs.k8s.io/mcs-api/pkg/apis/v1alpha1"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/pkg/errors"
-	"github.com/submariner-io/admiral/pkg/log"
-	"github.com/submariner-io/admiral/pkg/resource"
 	lhconst "github.com/submariner-io/lighthouse/pkg/constants"
-	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -127,6 +119,7 @@ func GetServiceExportCondition(status *mcsv1a1.ServiceExportStatus, ct mcsv1a1.S
 	return latestCond
 }
 
+/*
 func UpdateExportedServiceStatus(name, namespace string, client client.Client, scheme *runtime.Scheme,
 	conditionType mcsv1a1.ServiceExportConditionType, status corev1.ConditionStatus,
 	reason ServiceExportConditionReason, msg string) {
@@ -194,12 +187,6 @@ func UpdateExportedServiceStatus(name, namespace string, client client.Client, s
 		seLog.Error(retryErr, "Error updating status for ServiceExport")
 	}
 }
-
-func serviceExportConditionEqual(c1, c2 *mcsv1a1.ServiceExportCondition) bool {
-	return c1.Type == c2.Type && c1.Status == c2.Status && reflect.DeepEqual(c1.Reason, c2.Reason) &&
-		reflect.DeepEqual(c1.Message, c2.Message)
-}
-
 func getServiceExport(name, namespace string, client client.Client, scheme *runtime.Scheme) (*mcsv1a1.ServiceExport, error) {
 	obj, err := client.Namespace(namespace).Get(context.TODO(), name, metav1.GetOptions{})
 	if err != nil {
@@ -214,4 +201,11 @@ func getServiceExport(name, namespace string, client client.Client, scheme *runt
 	}
 
 	return se, nil
+}
+
+
+*/
+func ServiceExportConditionEqual(c1, c2 *mcsv1a1.ServiceExportCondition) bool {
+	return c1.Type == c2.Type && c1.Status == c2.Status && reflect.DeepEqual(c1.Reason, c2.Reason) &&
+		reflect.DeepEqual(c1.Message, c2.Message)
 }
