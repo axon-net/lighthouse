@@ -209,7 +209,7 @@ func (r *ServiceExportReconciler) ensureImportFor(ctx context.Context, se *mcsv1
 
 	si := mcsv1a1.ServiceImport{}
 	err = r.Client.Get(ctx, namespacedName, &si)
-	si = mcsv1a1.ServiceImport{
+	expected := mcsv1a1.ServiceImport{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: es.Namespace,
 			Name:      es.Name,
@@ -220,20 +220,35 @@ func (r *ServiceExportReconciler) ensureImportFor(ctx context.Context, se *mcsv1
 		},
 	}
 	if apierrors.IsNotFound(err) {
-		err = r.Client.Create(ctx, &si)
+		err = r.Client.Create(ctx, &expected)
 		if err != nil {
 			log.Error(err, "unable to create the needed Service Import")
 			return err
 		}
 	} else if err == nil {
-		err = r.Client.Update(ctx, &si)
+		err = r.updateSi(ctx, &si, &expected, log)
 		if err != nil {
-			log.Error(err, "unable to update the needed Service Import")
 			return err
 		}
 	} else {
 		log.Error(err, "Failed to get the needed service import")
 		return err
+	}
+	return nil
+}
+
+func (r *ServiceExportReconciler) updateSi(ctx context.Context, si *mcsv1a1.ServiceImport, expected *mcsv1a1.ServiceImport, log logr.Logger) error {
+	//not sure it's really needed to check name and namespace - I got the si from the Get according to those fields
+	//however its a general func, maybe should be "safe" for other usages(?)
+	if si.Name == expected.Name && si.Namespace == expected.Namespace {
+		si.Spec.Type = expected.Spec.Type
+		//maybe add a function that change the ports more carefully, without overwriting
+		si.Spec.Ports = expected.Spec.Ports
+		err := r.Client.Update(ctx, si)
+		if err != nil {
+			log.Error(err, "unable to update the needed Service Import")
+			return err
+		}
 	}
 	return nil
 }
