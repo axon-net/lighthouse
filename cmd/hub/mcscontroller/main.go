@@ -38,7 +38,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	mcsv1a1 "sigs.k8s.io/mcs-api/pkg/apis/v1alpha1"
-	mcsclient "sigs.k8s.io/mcs-api/pkg/client/clientset/versioned/typed/apis/v1alpha1"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -102,17 +101,17 @@ func main() {
 		setupLog.Error(err, "Unable to start manager")
 		os.Exit(1)
 	}
-	config := mgr.GetConfig()
-	mcClient, err := mcsclient.NewForConfig(config)
+	/*config := mgr.GetConfig()
+	/mcClient, err := mcsclient.NewForConfig(config)
 	if err != nil {
 		setupLog.Error(err, "Unable to create client")
 		os.Exit(1)
-	}
+	}*/
 	if err = (&ServiceExportReconciler{
-		Client:    mgr.GetClient(),
-		Log:       ctrl.Log.WithName("controllers").WithName("ServiceExport"),
-		Scheme:    mgr.GetScheme(),
-		mcsClient: mcClient.ServiceExports(namespace),
+		Client: mgr.GetClient(),
+		Log:    ctrl.Log.WithName("controllers").WithName("ServiceExport"),
+		Scheme: mgr.GetScheme(),
+		//	mcsClient: mcClient.ServiceExports(namespace),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Unable to create controller", "controller", "ServiceExport")
 		os.Exit(1)

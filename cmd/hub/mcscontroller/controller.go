@@ -30,11 +30,9 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/mcs-api/pkg/apis/v1alpha1"
 	mcsv1a1 "sigs.k8s.io/mcs-api/pkg/apis/v1alpha1"
 
 	//TO PR - check about how to choose import names?
-	apis "sigs.k8s.io/mcs-api/pkg/client/clientset/versioned/typed/apis/v1alpha1"
 
 	"github.com/submariner-io/lighthouse/pkg/lhutil"
 	"github.com/submariner-io/lighthouse/pkg/mcs"
@@ -46,10 +44,10 @@ const (
 
 // ServiceExportReconciler reconciles a ServiceExport object
 type ServiceExportReconciler struct {
-	Client    client.Client
-	Log       logr.Logger
-	Scheme    *runtime.Scheme
-	mcsClient apis.ServiceExportInterface
+	Client client.Client
+	Log    logr.Logger
+	Scheme *runtime.Scheme
+	//	mcsClient apis.ServiceExportInterface
 }
 
 // +kubebuilder:rbac:groups=multicluster.x-k8s.io,resources=serviceexports,verbs=get;list;watch;update;patch
@@ -157,18 +155,20 @@ func (r *ServiceExportReconciler) reconcile(ctx context.Context, name types.Name
 		//3b:
 		if err != nil {
 			r.updateServiceExportConditions(ctx, &se, mcsv1a1.ServiceExportConflict, corev1.ConditionTrue, "", err.Error())
-			r.mcsClient.UpdateStatus(ctx, &se, metav1.UpdateOptions{})
+			r.Client.Status().Update(ctx, &se)
+			//			r.mcsClient.UpdateStatus(ctx, &se, metav1.UpdateOptions{})
 			err = r.deleteImport(ctx, &se)
 			if err != nil {
 				return ctrl.Result{}, err
 			}
 		} else { //3c:
 			r.updateServiceExportConditions(ctx, &se, mcsv1a1.ServiceExportValid, corev1.ConditionTrue, "", "")
-			se, err := r.mcsClient.UpdateStatus(ctx, &se, metav1.UpdateOptions{})
+			r.Client.Status().Update(ctx, &se)
+			//			se, err := r.mcsClient.UpdateStatus(ctx, &se, metav1.UpdateOptions{})
 			if err != nil {
 				return ctrl.Result{}, err
 			}
-			r.ensureImportFor(ctx, se)
+			r.ensureImportFor(ctx, &se)
 		}
 	}
 	return ctrl.Result{}, nil
@@ -214,20 +214,19 @@ func (r *ServiceExportReconciler) ensureImportFor(ctx context.Context, se *mcsv1
 			Namespace: es.Namespace,
 			Name:      es.Name,
 		},
-		Spec: v1alpha1.ServiceImportSpec{
+		Spec: mcsv1a1.ServiceImportSpec{
 			Type:  es.Service.Type,
 			Ports: es.Service.Ports,
 		},
 	}
 	if apierrors.IsNotFound(err) {
-		//create the wanted si
-		err = r.Client.Create(ctx, si)
+		err = r.Client.Create(ctx, &si)
 		if err != nil {
 			log.Error(err, "unable to create the needed Service Import")
 			return err
 		}
 	} else if err == nil {
-		err = r.Client.Update(ctx, si)
+		err = r.Client.Update(ctx, &si)
 		if err != nil {
 			log.Error(err, "unable to update the needed Service Import")
 			return err
@@ -260,7 +259,7 @@ func (r *ServiceExportReconciler) deleteImport(ctx context.Context, se *mcsv1a1.
 			Namespace: es.Namespace,
 			Name:      es.Name,
 		},
-		Spec: v1alpha1.ServiceImportSpec{
+		Spec: mcsv1a1.ServiceImportSpec{
 			Type:  es.Service.Type,
 			Ports: es.Service.Ports,
 		},
