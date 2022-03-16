@@ -101,17 +101,10 @@ func main() {
 		setupLog.Error(err, "Unable to start manager")
 		os.Exit(1)
 	}
-	/*config := mgr.GetConfig()
-	/mcClient, err := mcsclient.NewForConfig(config)
-	if err != nil {
-		setupLog.Error(err, "Unable to create client")
-		os.Exit(1)
-	}*/
 	if err = (&ServiceExportReconciler{
 		Client: mgr.GetClient(),
 		Log:    ctrl.Log.WithName("controllers").WithName("ServiceExport"),
 		Scheme: mgr.GetScheme(),
-		//mcsClient: mcClient.ServiceExports(namespace),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Unable to create controller", "controller", "ServiceExport")
 		os.Exit(1)

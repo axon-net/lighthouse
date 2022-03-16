@@ -22,8 +22,6 @@ import (
 	"context"
 
 	"github.com/go-logr/logr"
-	"github.com/submariner-io/lighthouse/pkg/lhutil"
-	"github.com/submariner-io/lighthouse/pkg/mcs"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -33,6 +31,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	mcsv1a1 "sigs.k8s.io/mcs-api/pkg/apis/v1alpha1"
+
+	"github.com/submariner-io/lighthouse/pkg/lhutil"
+	"github.com/submariner-io/lighthouse/pkg/mcs"
 )
 
 const (
@@ -44,7 +45,6 @@ type ServiceExportReconciler struct {
 	Client client.Client
 	Log    logr.Logger
 	Scheme *runtime.Scheme
-	//	mcsClient apis.ServiceExportInterface
 }
 
 // +kubebuilder:rbac:groups=multicluster.x-k8s.io,resources=serviceexports,verbs=get;list;watch;update;patch
@@ -86,8 +86,12 @@ func (r *ServiceExportReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			return ctrl.Result{}, err
 		}
 	}
+	listOptions, err := lhutil.ServiceExportListFilter(se.ObjectMeta)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
 
-	result, err := r.reconcile(ctx, lhutil.GetOriginalObjectName(se.ObjectMeta))
+	result, err := r.reconcile(ctx, lhutil.GetOriginalObjectName(se.ObjectMeta), listOptions)
 	if err != nil {
 		return result, err
 	}
@@ -120,22 +124,19 @@ func (r *ServiceExportReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 // - ServiceImports are owned by the corresponding ServiceExport and are thus
 //	 automatically deleted by k8s when their ServiceExport is deleted.
 //
-func (r *ServiceExportReconciler) reconcile(ctx context.Context, name types.NamespacedName) (ctrl.Result, error) {
+func (r *ServiceExportReconciler) reconcile(ctx context.Context, name types.NamespacedName, listOptions *client.ListOptions) (ctrl.Result, error) {
 	log := r.Log.WithValues("service", name)
-	//1:
-	var exportList mcsv1a1.ServiceExportList
-	if err := r.Client.List(ctx, &exportList, client.MatchingLabels{"name": name.Name, "namespace": name.Namespace}); err != nil {
+	var exports mcsv1a1.ServiceExportList
+	if err := r.Client.List(ctx, &exports, listOptions); err != nil {
 		log.Error(err, "unable to list service's service export")
 		return ctrl.Result{}, err
 	}
-	//2:
-	primaryEs, err := getPrimaryExportObject(exportList)
+	primary, err := getPrimaryExportObject(exports)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	//3:
-	for _, se := range exportList.Items {
-		if se.DeletionTimestamp != nil { //3a:
+	for _, se := range exports.Items {
+		if se.DeletionTimestamp != nil {
 			continue
 		}
 
@@ -146,20 +147,23 @@ func (r *ServiceExportReconciler) reconcile(ctx context.Context, name types.Name
 			return ctrl.Result{}, err
 		}
 
-		err = exportSpec.IsCompatibleWith(primaryEs)
-		//3b:
+		err = exportSpec.IsCompatibleWith(primary)
 		if err != nil {
-			r.updateServiceExportConditions(ctx, &se, mcsv1a1.ServiceExportConflict, corev1.ConditionTrue, "", err.Error())
+			lhutil.UpdateServiceExportConditions(ctx, &se, log, mcsv1a1.ServiceExportConflict, corev1.ConditionTrue, "", err.Error())
 			r.Client.Status().Update(ctx, &se)
-			//r.mcsClient.UpdateStatus(ctx, &se, metav1.UpdateOptions{})
-			err = r.deleteImport(ctx, &se)
-			if err != nil {
-				return ctrl.Result{}, err
+			si := mcsv1a1.ServiceImport{}
+			err = r.Client.Get(ctx, name, &si)
+			if err == nil {
+				r.Client.Delete(ctx, &si)
+			} else {
+				if !apierrors.IsNotFound(err) {
+					log.Error(err, "Failed to get the service Import to delete")
+					return ctrl.Result{}, err
+				}
 			}
-		} else { //3c:
-			r.updateServiceExportConditions(ctx, &se, mcsv1a1.ServiceExportValid, corev1.ConditionTrue, "", "")
-			r.Client.Status().Update(ctx, &se)
-			//se, err := r.mcsClient.UpdateStatus(ctx, &se, metav1.UpdateOptions{})
+		} else {
+			lhutil.UpdateServiceExportConditions(ctx, &se, log, mcsv1a1.ServiceExportConflict, corev1.ConditionFalse, "", "successfully update the service export")
+			err = r.Client.Status().Update(ctx, &se)
 			if err != nil {
 				return ctrl.Result{}, err
 			}
@@ -196,9 +200,10 @@ func (r *ServiceExportReconciler) ensureImportFor(ctx context.Context, se *mcsv1
 	if err != nil {
 		return err
 	}
+
 	namespacedName := types.NamespacedName{
-		Namespace: es.Name,
-		Name:      es.Namespace,
+		Namespace: se.Name,
+		Name:      se.Namespace,
 	}
 	log := r.Log.WithValues("service", namespacedName.Name)
 
@@ -213,110 +218,41 @@ func (r *ServiceExportReconciler) ensureImportFor(ctx context.Context, se *mcsv1
 			Type:  es.Service.Type,
 			Ports: es.Service.Ports,
 		},
+		Status: mcsv1a1.ServiceImportStatus{
+			Clusters: []mcsv1a1.ClusterStatus{{Cluster: se.ClusterName}},
+		},
 	}
-	if apierrors.IsNotFound(err) {
-		err = r.Client.Create(ctx, &expected)
-		if err != nil {
-			log.Error(err, "unable to create the needed Service Import")
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			err = r.Client.Create(ctx, &expected)
+			if err != nil {
+				log.Error(err, "unable to create the needed Service Import")
+			}
 			return err
 		}
-	} else if err == nil {
-		err = r.updateSi(ctx, &si, &expected, log)
-		if err != nil {
-			return err
-		}
-	} else {
 		log.Error(err, "Failed to get the needed service import")
 		return err
 	}
-	return nil
+	err = r.updateServiceImport(ctx, &si, &expected, log)
+	return err
 }
 
-func (r *ServiceExportReconciler) updateSi(ctx context.Context, si *mcsv1a1.ServiceImport, expected *mcsv1a1.ServiceImport, log logr.Logger) error {
-	//not sure it's really needed to check name and namespace - I got the si from the Get according to those fields
-	//however its a general func, maybe should be "safe" for other usages(?)
-	if si.Name == expected.Name && si.Namespace == expected.Namespace {
-		si.Spec.Type = expected.Spec.Type
-		//maybe add a function that change the ports more carefully, without overwriting
-		si.Spec.Ports = expected.Spec.Ports
-		err := r.Client.Update(ctx, si)
-		if err != nil {
-			log.Error(err, "unable to update the needed Service Import")
-			return err
+// update the given ServiceImport to match the expected serviceImport
+func (r *ServiceExportReconciler) updateServiceImport(ctx context.Context, si, expected *mcsv1a1.ServiceImport, log logr.Logger) error {
+	si.Spec.Type = expected.Spec.Type
+	for i, expectedPort := range expected.Spec.Ports {
+		if i < len(si.Spec.Ports) {
+			expectedPort.DeepCopyInto(&si.Spec.Ports[i])
+		} else {
+			si.Spec.Ports = append(si.Spec.Ports, expectedPort)
 		}
 	}
-	return nil
-}
 
-// delete the corresponding serviceImport of the given serviceExport if exists.
-func (r *ServiceExportReconciler) deleteImport(ctx context.Context, se *mcsv1a1.ServiceExport) error {
-	es := &mcs.ExportSpec{}
-
-	err := es.UnmarshalObjectMeta(&se.ObjectMeta)
+	err := r.Client.Update(ctx, si)
 	if err != nil {
+		log.Error(err, "unable to update the needed Service Import")
 		return err
 	}
-	namespacedName := types.NamespacedName{
-		Namespace: es.Name,
-		Name:      es.Namespace,
-	}
-	log := r.Log.WithValues("service", namespacedName.Name)
-
-	si := mcsv1a1.ServiceImport{}
-	err = r.Client.Get(ctx, namespacedName, &si)
-	si = mcsv1a1.ServiceImport{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: es.Namespace,
-			Name:      es.Name,
-		},
-		Spec: mcsv1a1.ServiceImportSpec{
-			Type:  es.Service.Type,
-			Ports: es.Service.Ports,
-		},
-	}
-	if apierrors.IsNotFound(err) {
-		//the serviceImport dosen't exists - don't do anything
-		return nil
-	} else if err == nil {
-		//delete the service Import
-		r.Client.Delete(ctx, &si)
-	} else {
-		log.Error(err, "Failed to get the service Import to delete")
-		return err
-	}
-	return nil
-}
-
-//update the condition field under serviceExport status
-//based on the already existing method in the agent - might move to lhutil
-func (r *ServiceExportReconciler) updateServiceExportConditions(ctx context.Context, se *mcsv1a1.ServiceExport,
-	conditionType mcsv1a1.ServiceExportConditionType, status corev1.ConditionStatus, reason string, msg string) error {
-	log := r.Log.WithValues("name", se.Namespace+"/"+se.Name)
-	now := metav1.Now()
-	exportCondition := mcsv1a1.ServiceExportCondition{
-		Type:               conditionType,
-		Status:             status,
-		LastTransitionTime: &now,
-		Reason:             (*string)(&reason),
-		Message:            &msg,
-	}
-
-	numCond := len(se.Status.Conditions)
-	if numCond > 0 && lhutil.ServiceExportConditionEqual(&se.Status.Conditions[numCond-1], &exportCondition) {
-		lastCond := se.Status.Conditions[numCond-1]
-		log.Info("Last ServiceExportCondition equal - not updating status",
-			"condition", lastCond)
-		return nil
-	}
-
-	if numCond >= lhutil.MaxExportStatusConditions {
-		copy(se.Status.Conditions[0:], se.Status.Conditions[1:])
-		se.Status.Conditions = se.Status.Conditions[:lhutil.MaxExportStatusConditions]
-		se.Status.Conditions[lhutil.MaxExportStatusConditions-1] = exportCondition
-	} else {
-		se.Status.Conditions = append(se.Status.Conditions, exportCondition)
-	}
-
 	return nil
 }
 

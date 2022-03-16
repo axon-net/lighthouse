@@ -180,7 +180,7 @@ func (es *ExportSpec) IsPreferredOver(another *ExportSpec) bool {
 // Retruns true when the specifications are compatible, otherwise returns
 // false and the name of the conflicting field.
 // @todo do we want to collect a map of the conflicting Global Properties?
-func (es *ExportSpec) IsCompatibleWith(another *ExportSpec) *CompatibilityError {
+func (es *ExportSpec) IsCompatibleWith(another *ExportSpec) error {
 	if es.Name != another.Name {
 		return &CompatibilityError{
 			clusterID: another.ClusterID,
