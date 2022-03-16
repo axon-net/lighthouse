@@ -22,11 +22,11 @@ import (
 	"fmt"
 	"reflect"
 
-	mcsv1a1 "sigs.k8s.io/mcs-api/pkg/apis/v1alpha1"
-
+  corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	mcsv1a1 "sigs.k8s.io/mcs-api/pkg/apis/v1alpha1"
 
 	lhconst "github.com/submariner-io/lighthouse/pkg/constants"
 )
@@ -118,4 +118,15 @@ func GetServiceExportCondition(status *mcsv1a1.ServiceExportStatus, ct mcsv1a1.S
 func ServiceExportConditionEqual(c1, c2 *mcsv1a1.ServiceExportCondition) bool {
 	return c1.Type == c2.Type && c1.Status == c2.Status && reflect.DeepEqual(c1.Reason, c2.Reason) &&
 		reflect.DeepEqual(c1.Message, c2.Message)
+}
+
+func CreateServiceExportCondition(ct mcsv1a1.ServiceExportConditionType, cs corev1.ConditionStatus, reason, msg string) *mcsv1a1.ServiceExportCondition {
+	now := metav1.Now()
+	return &mcsv1a1.ServiceExportCondition{
+		Type:               ct,
+		Status:             cs,
+		LastTransitionTime: &now,
+		Reason:             &reason,
+		Message:            &msg,
+	}
 }
