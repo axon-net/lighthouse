@@ -19,6 +19,7 @@ import (
 	"github.com/submariner-io/lighthouse/cmd/hub/mcscontroller"
 	lhconst "github.com/submariner-io/lighthouse/pkg/constants"
 	"github.com/submariner-io/lighthouse/pkg/lhutil"
+	"github.com/submariner-io/lighthouse/pkg/mcs"
 )
 
 const (
@@ -30,7 +31,6 @@ const (
 )
 
 var (
-	scheme  = runtime.NewScheme()
 	service = &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      serviceName,
@@ -50,55 +50,109 @@ var (
 )
 
 func TestImportGenerated(t *testing.T) {
+	// @todo refactor into a prepareServiceExport function
 	exp1 := export.DeepCopy()
 	exp1.Name = lhutil.GenerateObjectName(serviceName, serviceNS, cluster1)
 	exp1.Labels[lhconst.LighthouseLabelSourceCluster] = cluster1
+	es, _ := mcs.NewExportSpec(service, exp1, cluster1)
+	_ = es.MarshalObjectMeta(&exp1.ObjectMeta)
 
 	preloadedObjects := []runtime.Object{service, exp1}
 	ser := mcscontroller.ServiceExportReconciler{
 		Client: getClient(preloadedObjects),
-		Log:    &nilLog{},
+		Log:    newLogger(t, false),
 		Scheme: getScheme(),
 	}
 
-	_, err := ser.Reconcile(context.TODO(), reconcile.Request{
+	req := reconcile.Request{
 		NamespacedName: types.NamespacedName{
 			Name:      exp1.GetName(),
 			Namespace: exp1.GetNamespace(),
-		}})
+		}}
+
+	result, err := ser.Reconcile(context.TODO(), req)
+
 	if err != nil {
 		t.Error(err)
+	}
+	if result.Requeue {
+		t.Error("unexpected requeue")
 	}
 
 	si := mcsv1a1.ServiceImport{}
-	err = ser.Client.Get(context.TODO(), types.NamespacedName{
-		Name:      exp1.GetName(),
-		Namespace: exp1.GetNamespace(),
-	}, &si)
+	err = ser.Client.Get(context.TODO(), req.NamespacedName, &si)
 
 	if err != nil {
 		t.Error(err)
 	}
+	// @todo validate the ServiceImport properties
 }
 
-func init() {
+// return a scheme with the default k8s and mcs objects
+func getScheme() *runtime.Scheme {
+	scheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(mcsv1a1.AddToScheme(scheme))
-}
-
-func getScheme() *runtime.Scheme {
 	return scheme
 }
 
+// generate a fake client with preloaded objects
 func getClient(objs []runtime.Object) client.Client {
 	return fake.NewClientBuilder().WithScheme(getScheme()).WithRuntimeObjects(objs...).Build()
 }
 
-type nilLog struct{}
+// satisfy the logr.Logger interface with a nil logger
+type logger struct {
+	enabled bool
+	t       *testing.T
+	name    string
+	kv      map[string]interface{}
+}
 
-func (nilLog) Enabled() bool                                           { return true }
-func (nilLog) Error(e error, msg string, keysAndValues ...interface{}) {}
-func (nilLog) Info(msg string, keysAndValues ...interface{})           {}
-func (dn *nilLog) V(level int) logr.Logger                             { return dn }
-func (dn *nilLog) WithValues(keysAndValues ...interface{}) logr.Logger { return dn }
-func (dn *nilLog) WithName(name string) logr.Logger                    { return dn }
+var _ logr.Logger = &logger{}
+
+func newLogger(t *testing.T, enabled bool) *logger {
+	return &logger{
+		enabled: enabled,
+		t:       t,
+		kv:      make(map[string]interface{}),
+	}
+}
+
+func (l logger) Enabled() bool {
+	return l.enabled
+}
+
+func (l logger) Error(e error, msg string, keysAndValues ...interface{}) {
+	if l.enabled {
+		args := []interface{}{e.Error(), msg, keysAndValues, l.kv}
+		l.t.Error(args...)
+	}
+}
+
+func (l logger) Info(msg string, keysAndValues ...interface{}) {
+	if l.enabled {
+		args := []interface{}{msg, keysAndValues, l.kv}
+		l.t.Log(args...)
+	}
+}
+
+func (l *logger) V(level int) logr.Logger {
+	return l
+}
+
+func (l *logger) WithValues(keysAndValues ...interface{}) logr.Logger {
+	if len(keysAndValues)%2 != 0 {
+		panic(keysAndValues)
+	}
+
+	for i := 0; i < len(keysAndValues); i += 2 {
+		l.kv[keysAndValues[i].(string)] = keysAndValues[i+1]
+	}
+	return l
+}
+
+func (l *logger) WithName(name string) logr.Logger {
+	l.name = name
+	return l
+}
