@@ -211,8 +211,8 @@ func (r *ServiceExportReconciler) ensureImportFor(ctx context.Context, se *mcsv1
 	err = r.Client.Get(ctx, namespacedName, &si)
 	expected := mcsv1a1.ServiceImport{
 		ObjectMeta: metav1.ObjectMeta{
-			Namespace: se.Name,
-			Name:      se.Namespace,
+			Namespace: namespacedName.Namespace,
+			Name:      namespacedName.Name,
 		},
 		Spec: mcsv1a1.ServiceImportSpec{
 			Type:  es.Service.Type,
