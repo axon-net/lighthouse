@@ -16,7 +16,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package main
+package mcscontroller
 
 import (
 	"context"
@@ -211,8 +211,8 @@ func (r *ServiceExportReconciler) ensureImportFor(ctx context.Context, se *mcsv1
 	err = r.Client.Get(ctx, namespacedName, &si)
 	expected := mcsv1a1.ServiceImport{
 		ObjectMeta: metav1.ObjectMeta{
-			Namespace: es.Namespace,
-			Name:      es.Name,
+			Namespace: se.Name,
+			Name:      se.Namespace,
 		},
 		Spec: mcsv1a1.ServiceImportSpec{
 			Type:  es.Service.Type,
