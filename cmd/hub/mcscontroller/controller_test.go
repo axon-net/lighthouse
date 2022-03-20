@@ -2,7 +2,10 @@ package mcscontroller_test
 
 import (
 	"context"
+	"fmt"
+	"reflect"
 	"testing"
+	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -23,54 +26,69 @@ import (
 )
 
 const (
-	serviceName = "svc"
-	serviceNS   = "svc-ns"
-	brokerNS    = "submariner-broker"
+	serviceName = "service"
+	serviceNS   = "namespace"
+	brokerNS    = "submariner-k8s-broker"
 	cluster1    = "c1"
 	cluster2    = "c2"
 )
 
 var (
+	now     = metav1.NewTime(time.Now())
 	service = &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      serviceName,
 			Namespace: serviceNS,
 		},
+		Spec: corev1.ServiceSpec{
+			Type:      corev1.ServiceTypeClusterIP,
+			ClusterIP: "1.2.3.4",
+			Ports: []corev1.ServicePort{{
+				Name: "http",
+				Port: int32(80),
+			}},
+		},
 	}
 	export = &mcsv1a1.ServiceExport{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "placeholder",
-			Namespace: brokerNS,
+			Name:      serviceName,
+			Namespace: serviceNS,
 			Labels: map[string]string{
 				lhconst.LabelSourceNamespace:      serviceNS,
 				lhconst.LighthouseLabelSourceName: serviceName,
 			},
+			CreationTimestamp: now,
+		},
+		Status: mcsv1a1.ServiceExportStatus{
+			Conditions: []mcsv1a1.ServiceExportCondition{{
+				Type:               mcsv1a1.ServiceExportValid,
+				Status:             corev1.ConditionTrue,
+				LastTransitionTime: &now,
+			}},
 		},
 	}
 )
 
-func TestImportGenerated(t *testing.T) {
-	// @todo refactor into a prepareServiceExport function
-	exp1 := export.DeepCopy()
-	exp1.Name = lhutil.GenerateObjectName(serviceName, serviceNS, cluster1)
-	exp1.Labels[lhconst.LighthouseLabelSourceCluster] = cluster1
-	es, _ := mcs.NewExportSpec(service, exp1, cluster1)
-	_ = es.MarshalObjectMeta(&exp1.ObjectMeta)
+func TestCreatesImport(t *testing.T) {
+	se, err := prepareExport(*export, cluster1)
+	if err != nil {
+		t.Error(err)
+	}
 
-	preloadedObjects := []runtime.Object{service, exp1}
-	ser := mcscontroller.ServiceExportReconciler{
-		Client: getClient(preloadedObjects),
+	preloadedObjs := []runtime.Object{se}
+	r := mcscontroller.ServiceExportReconciler{
+		Client: getClient(preloadedObjs),
 		Log:    newLogger(t, false),
 		Scheme: getScheme(),
 	}
 
 	req := reconcile.Request{
 		NamespacedName: types.NamespacedName{
-			Name:      exp1.GetName(),
-			Namespace: exp1.GetNamespace(),
+			Name:      se.GetName(),
+			Namespace: se.GetNamespace(),
 		}}
 
-	result, err := ser.Reconcile(context.TODO(), req)
+	result, err := r.Reconcile(context.TODO(), req)
 
 	if err != nil {
 		t.Error(err)
@@ -79,13 +97,95 @@ func TestImportGenerated(t *testing.T) {
 		t.Error("unexpected requeue")
 	}
 
-	si := mcsv1a1.ServiceImport{}
-	err = ser.Client.Get(context.TODO(), req.NamespacedName, &si)
-
-	if err != nil {
+	if err = r.Client.Get(context.TODO(), req.NamespacedName, se); err != nil {
 		t.Error(err)
 	}
-	// @todo validate the ServiceImport properties
+	if hasCondition(*se, mcsv1a1.ServiceExportConflict, corev1.ConditionTrue) {
+		t.Error("unexpected conflict condition")
+	}
+
+	si := mcsv1a1.ServiceImport{}
+	if err = r.Client.Get(context.TODO(), req.NamespacedName, &si); err != nil {
+		t.Error(err)
+	}
+	validateImportForExport(si, *se)
+}
+
+func TestCreatesImportPerEachExport(t *testing.T) {
+}
+
+func TestDeletingExportDeletesImport(t *testing.T) {
+}
+
+func TestImportUnchangedWhenUpdatingNonGlobalExportProperties(t *testing.T) {
+}
+
+func TestImportUpdatedWithExportGlobalProperties(t *testing.T) {
+}
+
+func TestImportForOnlyNonConflictingExport(t *testing.T) {
+}
+
+// prepare a cluster-specific export based on the given service export
+func prepareExport(se mcsv1a1.ServiceExport, cluster string) (*mcsv1a1.ServiceExport, error) {
+	exp := se.DeepCopy()
+	exp.Labels[lhconst.LighthouseLabelSourceCluster] = cluster
+	spec, err := mcs.NewExportSpec(service, exp, cluster)
+	if err != nil {
+		return nil, err
+	}
+	if err := spec.MarshalObjectMeta(&exp.ObjectMeta); err != nil {
+		return nil, err
+	}
+	exp.Name = lhutil.GenerateObjectName(serviceName, serviceNS, cluster1)
+	exp.Namespace = brokerNS
+	return exp, nil
+}
+
+// validate the attributes of the import are appropriate for the given export
+func validateImportForExport(si mcsv1a1.ServiceImport, se mcsv1a1.ServiceExport) error {
+	var expSpec mcs.ExportSpec
+	if err := expSpec.UnmarshalObjectMeta(&se.ObjectMeta); err != nil {
+		return err
+	}
+
+	if si.Spec.Type != expSpec.Service.Type {
+		return fmt.Errorf("unexpected service type. want %v got %v", expSpec.Service.Type, si.Spec.Type)
+	}
+	// @todo for now assume single Port
+	if len(si.Spec.Ports) != len(service.Spec.Ports) {
+		return fmt.Errorf("unexpected service port count, want %d got %d", len(service.Spec.Ports), len(si.Spec.Ports))
+	} else if !reflect.DeepEqual(si.Spec.Ports, service.Spec.Ports) {
+		return fmt.Errorf("unexpected service port list, want %v got %v", service.Spec.Ports, si.Spec.Ports)
+	}
+
+	if len(si.Status.Clusters) != 1 {
+		return fmt.Errorf("unexpected cluster list length %d", len(si.Status.Clusters))
+	} else if si.Status.Clusters[0].Cluster != expSpec.ClusterID {
+		return fmt.Errorf("unexpected cluster want %s got %s", expSpec.ClusterID, si.Status.Clusters[0].Cluster)
+	}
+
+	labels := si.GetLabels()
+	if labels[lhconst.LabelSourceNamespace] != expSpec.Namespace ||
+		labels[lhconst.LighthouseLabelSourceName] != expSpec.Name ||
+		labels[lhconst.LighthouseLabelSourceCluster] != expSpec.ClusterID {
+		return fmt.Errorf("mismatching labels want %v got %v", expSpec, labels)
+	}
+	// @todo session affinity
+
+	return nil
+}
+
+func hasCondition(se mcsv1a1.ServiceExport, ct mcsv1a1.ServiceExportConditionType,
+	status corev1.ConditionStatus) bool {
+
+	// @todo if multiple conditions of the same type exist, ensure ours has the latest timestamp?
+	for _, cond := range se.Status.Conditions {
+		if cond.Type == ct && cond.Status == status {
+			return true
+		}
+	}
+	return false
 }
 
 // return a scheme with the default k8s and mcs objects
@@ -101,7 +201,7 @@ func getClient(objs []runtime.Object) client.Client {
 	return fake.NewClientBuilder().WithScheme(getScheme()).WithRuntimeObjects(objs...).Build()
 }
 
-// satisfy the logr.Logger interface with a nil logger
+// satisfy the logr.Logger interface with logging to the test's output
 type logger struct {
 	enabled bool
 	t       *testing.T
