@@ -79,7 +79,7 @@ func Annotate(objmd *metav1.ObjectMeta, name, ns, cluster string) {
 
 // ListFilter creates a filter that can be used to list only matching ServiceExport
 // or ServiceImport objects. It relies on the presence of the Lighthouse labels.
-func ServiceExportListFilter(objmd metav1.ObjectMeta) (*client.ListOptions, error) {
+func NewServiceExportListFilter(objmd metav1.ObjectMeta) (*client.ListOptions, error) {
 	labels := objmd.GetLabels()
 
 	if labels[lhconst.LabelSourceNamespace] == "" || labels[lhconst.LighthouseLabelSourceName] == "" {
