@@ -18,6 +18,7 @@ import (
 
 	"github.com/submariner-io/lighthouse/cmd/hub/mcscontroller"
 	lhconst "github.com/submariner-io/lighthouse/pkg/constants"
+	"github.com/submariner-io/lighthouse/pkg/lhutil"
 	"github.com/submariner-io/lighthouse/pkg/mcs"
 )
 
@@ -72,15 +73,16 @@ func TestImportGenerated(t *testing.T) {
 		Log:    newLogger(t, false),
 		Scheme: getScheme(),
 	}
-	// mimics the changing in the names that happens in the hub
-	//exp1.Name = lhutil.GenerateObjectName(serviceName, serviceNS, cluster1)
-	//	exp1.Namespace = brokerNS
-
 	req := reconcile.Request{
 		NamespacedName: types.NamespacedName{
 			Name:      exp1.GetName(),
 			Namespace: exp1.GetNamespace(),
 		}}
+
+	// mimics the changing in the names that happens in the hub
+	//TO PR - make sure it suppose to be after taking the names to the req
+	exp1.Name = lhutil.GenerateObjectName(serviceName, serviceNS, cluster1)
+	exp1.Namespace = brokerNS
 
 	result, err := ser.Reconcile(context.TODO(), req)
 

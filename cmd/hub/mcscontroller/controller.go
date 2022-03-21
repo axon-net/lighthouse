@@ -202,8 +202,8 @@ func (r *ServiceExportReconciler) ensureImportFor(ctx context.Context, se *mcsv1
 	}
 
 	namespacedName := types.NamespacedName{
-		Namespace: se.Name,
-		Name:      se.Namespace,
+		Namespace: se.Namespace,
+		Name:      se.Name,
 	}
 	log := r.Log.WithValues("service", namespacedName.Name)
 
