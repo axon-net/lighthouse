@@ -219,7 +219,7 @@ func (r *ServiceExportReconciler) ensureImportFor(ctx context.Context, se *mcsv1
 			Ports: es.Service.Ports,
 		},
 		Status: mcsv1a1.ServiceImportStatus{
-			Clusters: []mcsv1a1.ClusterStatus{{Cluster: se.ClusterName}},
+			Clusters: []mcsv1a1.ClusterStatus{{Cluster: lhutil.GetOriginalObjectCluster(se.ObjectMeta)}},
 		},
 	}
 	if err != nil {
