@@ -48,7 +48,7 @@ var (
 				},
 			},
 			Ports: []corev1.ServicePort{
-				{Port: 80, Name: "http", Protocol: corev1.ProtocolTCP},
+				{Port: 80, Name: "http0", Protocol: corev1.ProtocolTCP},
 			},
 		},
 	}
@@ -62,6 +62,7 @@ var (
 			},
 		},
 	}
+	differentPort = mcsv1a1.ServicePort{Port: 81, Name: "http1", Protocol: corev1.ProtocolTCP}
 )
 
 func prepareServiceExport(t *testing.T) (*mcsv1a1.ServiceExport, *mcs.ExportSpec) {
@@ -259,8 +260,81 @@ func TestCreateAndDeleteExport(t *testing.T) {
 	assertions.True(apierrors.IsNotFound(err))
 }
 
+func TestUpdateExportWithoutImport(t *testing.T) {
+	//assertions := require.New(t)
+	exp1, es1 := prepareServiceExport(t)
+	preloadedObjects := []runtime.Object{service, exp1}
+	ser := mcscontroller.ServiceExportReconciler{
+		Client: getClient(preloadedObjects),
+		Log:    newLogger(t, false),
+		Scheme: getScheme(),
+	}
+	req1 := reconcile.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      exp1.GetName(),
+			Namespace: exp1.GetNamespace(),
+		}}
+	result, err := ser.Reconcile(context.TODO(), req1)
+
+	if err != nil {
+		t.Error(err)
+	}
+	if result.Requeue {
+		t.Error("unexpected requeue")
+	}
+	verfiySi(ser, t, req1, exp1, es1)
+
+	//update export: CHECK WHICK SLOT I CAN UPDATE AND DOSENT EFFECT THE IMPORT
+	//es1.
+}
+
+func TestUpdateExportAndImport(t *testing.T) {
+	//assertions := require.New(t)
+	exp, es := prepareServiceExport(t)
+	preloadedObjects := []runtime.Object{service, exp}
+	ser := mcscontroller.ServiceExportReconciler{
+		Client: getClient(preloadedObjects),
+		Log:    newLogger(t, false),
+		Scheme: getScheme(),
+	}
+	req := reconcile.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      exp.GetName(),
+			Namespace: exp.GetNamespace(),
+		}}
+	result, err := ser.Reconcile(context.TODO(), req)
+	if err != nil {
+		t.Error(err)
+	}
+	if result.Requeue {
+		t.Error("unexpected requeue")
+	}
+	verfiySi(ser, t, req, exp, es)
+
+	//update the export:
+	es.Service.Ports = append(es.Service.Ports, differentPort)
+	err = es.MarshalObjectMeta(&exp.ObjectMeta)
+	if err != nil {
+		t.Error(err)
+	}
+	result, err = ser.Reconcile(context.TODO(), req)
+	if err != nil {
+		t.Error(err)
+	}
+	if result.Requeue {
+		t.Error("unexpected requeue")
+	}
+
+	//sholud fail - @TODO change to generic func that compare to given SI
+	verfiySi(ser, t, req, exp, es)
+}
+
+func TestExportConflict(t *testing.T) {
+
+}
+
 func verfiySi(ser mcscontroller.ServiceExportReconciler, t *testing.T, req reconcile.Request,
-	exp *mcsv1a1.ServiceExport, es *mcs.ExportSpec) {
+	exp *mcsv1a1.ServiceExport, es *mcs.ExportSpec) *mcsv1a1.ServiceImport {
 	si := mcsv1a1.ServiceImport{}
 	err := ser.Client.Get(context.TODO(), req.NamespacedName, &si)
 
@@ -269,6 +343,7 @@ func verfiySi(ser mcscontroller.ServiceExportReconciler, t *testing.T, req recon
 	}
 	assertions := require.New(t)
 	compareSi(&si, exp, es, assertions)
+	return &si
 }
 
 // To ask Etai - is those fields check ok? are the name and namespace should be in this format?
