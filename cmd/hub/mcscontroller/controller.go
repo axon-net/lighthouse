@@ -20,6 +20,7 @@ package mcscontroller
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -86,7 +87,7 @@ func (r *ServiceExportReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			return ctrl.Result{}, err
 		}
 	}
-	listOptions, err := lhutil.ServiceExportListFilter(se.ObjectMeta)
+	listOptions, err := lhutil.NewServiceExportListFilter(se.ObjectMeta)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -143,31 +144,40 @@ func (r *ServiceExportReconciler) reconcile(ctx context.Context, name types.Name
 		exportSpec := &mcs.ExportSpec{}
 		err := exportSpec.UnmarshalObjectMeta(&se.ObjectMeta)
 		if err != nil {
-			log.Info("Failed to unmarshal exportSpec from serviceExport")
+			log.Info("Failed to unmarshal exportSpec from %s serviceExport in Namespace %s", se.Name, se.Namespace)
 			return ctrl.Result{}, err
 		}
 
-		err = exportSpec.IsCompatibleWith(primary)
+		err = exportSpec.EnsureCompatible(primary)
 		if err != nil {
 			lhutil.UpdateServiceExportConditions(ctx, &se, log, mcsv1a1.ServiceExportConflict, corev1.ConditionTrue, "", err.Error())
-			r.Client.Status().Update(ctx, &se)
+			err = r.Client.Status().Update(ctx, &se)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
 			si := mcsv1a1.ServiceImport{}
 			err = r.Client.Get(ctx, name, &si)
 			if err == nil {
-				r.Client.Delete(ctx, &si)
+				err = r.Client.Delete(ctx, &si)
+				if err != nil {
+					return ctrl.Result{}, err
+				}
 			} else {
 				if !apierrors.IsNotFound(err) {
 					log.Error(err, "Failed to get the service Import to delete")
 					return ctrl.Result{}, err
 				}
 			}
-		} else {
-			lhutil.UpdateServiceExportConditions(ctx, &se, log, mcsv1a1.ServiceExportConflict, corev1.ConditionFalse, "", "successfully update the service export")
-			err = r.Client.Status().Update(ctx, &se)
-			if err != nil {
-				return ctrl.Result{}, err
-			}
-			r.ensureImportFor(ctx, &se)
+			continue
+		}
+		lhutil.UpdateServiceExportConditions(ctx, &se, log, mcsv1a1.ServiceExportConflict, corev1.ConditionFalse, "", "successfully update the service export")
+		err = r.Client.Status().Update(ctx, &se)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		err = r.ensureImportFor(ctx, &se)
+		if err != nil {
+			return ctrl.Result{}, err
 		}
 	}
 	return ctrl.Result{}, nil
@@ -178,6 +188,9 @@ func (r *ServiceExportReconciler) reconcile(ctx context.Context, name types.Name
 // the given ServiceExportList according to the conflict resolution specification set in the
 // KEP, that is implemented in IsPreferredOver method of ExportSpec.
 func getPrimaryExportObject(exportList mcsv1a1.ServiceExportList) (*mcs.ExportSpec, error) {
+	if len(exportList.Items) == 0 {
+		return nil, fmt.Errorf("exportList is empty - couldn't find primary export object")
+	}
 	var primary *mcs.ExportSpec
 	for i, se := range exportList.Items {
 		exportSpec := &mcs.ExportSpec{}
@@ -208,7 +221,6 @@ func (r *ServiceExportReconciler) ensureImportFor(ctx context.Context, se *mcsv1
 	log := r.Log.WithValues("service", namespacedName.Name)
 
 	si := mcsv1a1.ServiceImport{}
-	err = r.Client.Get(ctx, namespacedName, &si)
 	expected := mcsv1a1.ServiceImport{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: namespacedName.Namespace,
@@ -225,6 +237,7 @@ func (r *ServiceExportReconciler) ensureImportFor(ctx context.Context, se *mcsv1
 			Clusters: []mcsv1a1.ClusterStatus{{Cluster: lhutil.GetOriginalObjectCluster(se.ObjectMeta)}},
 		},
 	}
+	err = r.Client.Get(ctx, namespacedName, &si)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			err = r.Client.Create(ctx, &expected)
@@ -253,7 +266,6 @@ func (r *ServiceExportReconciler) updateServiceImport(ctx context.Context, si, e
 
 	err := r.Client.Update(ctx, si)
 	if err != nil {
-		log.Error(err, "unable to update the needed Service Import")
 		return err
 	}
 	return nil
