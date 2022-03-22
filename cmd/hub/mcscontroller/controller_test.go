@@ -62,6 +62,7 @@ var (
 			},
 		},
 	}
+
 	differentPort = mcsv1a1.ServicePort{Port: 81, Name: "http1", Protocol: corev1.ProtocolTCP}
 )
 
@@ -79,6 +80,7 @@ func prepareServiceExport(t *testing.T) (*mcsv1a1.ServiceExport, *mcs.ExportSpec
 	return exp, es
 }
 
+// Pass (to be deleted)
 func TestImportGenerated(t *testing.T) {
 	exp, es := prepareServiceExport(t)
 
@@ -95,7 +97,7 @@ func TestImportGenerated(t *testing.T) {
 		}}
 
 	// mimics the changing in the names that happens in the hub
-	//TO PR - make sure it suppose to be after taking the names to the req. maybe don't need it?
+	// TO PR - make sure it suppose to be after taking the names to the req. maybe don't need it?
 	exp.Name = lhutil.GenerateObjectName(serviceName, serviceNS, cluster1)
 	exp.Namespace = brokerNS
 
@@ -115,9 +117,13 @@ func TestImportGenerated(t *testing.T) {
 		t.Error(err)
 	}
 	assertions := require.New(t)
-	compareSi(&si, exp, es, assertions)
+	// TO PR - I wanted to test "as close" to reality, and get it from the es and not initialized those values
+	// maybe its not needed, and can be initialized
+	excepted := generateExceptedServiceImport(exp, es)
+	compareSi(&excepted, &si, assertions)
 }
 
+// Pass
 func TestImportFromExport(t *testing.T) {
 	exp, es := prepareServiceExport(t)
 
@@ -127,6 +133,7 @@ func TestImportFromExport(t *testing.T) {
 		Log:    newLogger(t, false),
 		Scheme: getScheme(),
 	}
+	//create *only* the export
 	ser.Client.Create(context.TODO(), exp)
 	req := reconcile.Request{
 		NamespacedName: types.NamespacedName{
@@ -154,11 +161,14 @@ func TestImportFromExport(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
+	// TO PR - I wanted to test "as close" to reality, and get it from the es and not initialized those values
+	// maybe its not needed, and can be initialized
+	excepted := generateExceptedServiceImport(exp, es)
 	assertions := require.New(t)
-	compareSi(&si, exp, es, assertions)
+	// make sure that the right serviceImport was created
+	compareSi(&excepted, &si, assertions)
 }
 
-//FAILS CLUSTER FIELD - make sure how to test it and enter this field.
 func Test2ImportsFromExports(t *testing.T) {
 	exp1, es1 := prepareServiceExport(t)
 
@@ -176,7 +186,7 @@ func Test2ImportsFromExports(t *testing.T) {
 		}}
 
 	// mimics the changing in the names that happens in the hub
-	//TO PR - make sure it suppose to be after taking the names to the req. maybe don't need it?
+	// TO PR - make sure it suppose to be after taking the names to the req. maybe don't need it?
 	exp1.Name = lhutil.GenerateObjectName(serviceName, serviceNS, cluster1)
 	exp1.Namespace = brokerNS
 
@@ -185,14 +195,24 @@ func Test2ImportsFromExports(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
+
 	if result.Requeue {
 		t.Error("unexpected requeue")
 	}
 
-	verfiySi(ser, t, req1, exp1, es1)
+	si := mcsv1a1.ServiceImport{}
+	err = ser.Client.Get(context.TODO(), req1.NamespacedName, &si)
+
+	if err != nil {
+		t.Error(err)
+	}
+	assertions := require.New(t)
+	excepted := generateExceptedServiceImport(exp1, es1)
+	compareSi(&excepted, &si, assertions)
 
 	exp2, es2 := prepareServiceExport(t)
 	exp2.Labels[lhconst.LighthouseLabelSourceCluster] = cluster2
+	excepted2 := excepted.DeepCopy()
 	ser.Client.Create(context.TODO(), exp2)
 	req2 := reconcile.Request{
 		NamespacedName: types.NamespacedName{
@@ -204,7 +224,7 @@ func Test2ImportsFromExports(t *testing.T) {
 	//TO PR - make sure it suppose to be after taking the names to the req. maybe don't need it?
 	exp2.Name = lhutil.GenerateObjectName(serviceName, serviceNS, cluster2)
 	exp2.Namespace = brokerNS
-
+	exp2.Labels[lhconst.LighthouseLabelSourceCluster] = cluster2 // changed field
 	result, err = ser.Reconcile(context.TODO(), req2)
 
 	if err != nil {
@@ -213,7 +233,15 @@ func Test2ImportsFromExports(t *testing.T) {
 	if result.Requeue {
 		t.Error("unexpected requeue")
 	}
-	verfiySi(ser, t, req2, exp2, es2)
+
+	err = ser.Client.Get(context.TODO(), req2.NamespacedName, &si)
+
+	if err != nil {
+		t.Error(err)
+	}
+
+	excepted = generateExceptedServiceImport(exp2, es2)
+	compareSi(excepted2, &si, assertions)
 }
 
 // FAILS - The service import is not deleted after deleting the service export
@@ -221,18 +249,18 @@ func Test2ImportsFromExports(t *testing.T) {
 // I think it should delete the service import too since its owner is the serviceExport that was deleted.
 func TestCreateAndDeleteExport(t *testing.T) {
 	assertions := require.New(t)
-	exp1, es1 := prepareServiceExport(t)
+	exp, es := prepareServiceExport(t)
 	preloadedObjects := []runtime.Object{service}
 	ser := mcscontroller.ServiceExportReconciler{
 		Client: getClient(preloadedObjects),
 		Log:    newLogger(t, false),
 		Scheme: getScheme(),
 	}
-	ser.Client.Create(context.TODO(), exp1)
+	ser.Client.Create(context.TODO(), exp)
 	req1 := reconcile.Request{
 		NamespacedName: types.NamespacedName{
-			Name:      exp1.GetName(),
-			Namespace: exp1.GetNamespace(),
+			Name:      exp.GetName(),
+			Namespace: exp.GetNamespace(),
 		}}
 	result, err := ser.Reconcile(context.TODO(), req1)
 
@@ -243,10 +271,19 @@ func TestCreateAndDeleteExport(t *testing.T) {
 		t.Error("unexpected requeue")
 	}
 
-	verfiySi(ser, t, req1, exp1, es1)
+	si := mcsv1a1.ServiceImport{}
+	err = ser.Client.Get(context.TODO(), req1.NamespacedName, &si)
+
+	if err != nil {
+		t.Error(err)
+	}
+	// TO PR - I wanted to test "as close" to reality, and get it from the es and not initialized those values
+	// maybe its not needed, and can be initialized
+	excepted := generateExceptedServiceImport(exp, es)
+	compareSi(&excepted, &si, assertions)
 
 	//delete the export - and check that the import was also deleted:
-	ser.Client.Delete(context.TODO(), exp1)
+	ser.Client.Delete(context.TODO(), exp)
 	result, err = ser.Reconcile(context.TODO(), req1)
 
 	if err != nil {
@@ -255,14 +292,13 @@ func TestCreateAndDeleteExport(t *testing.T) {
 	if result.Requeue {
 		t.Error("unexpected requeue")
 	}
-	si := mcsv1a1.ServiceImport{}
+	si = mcsv1a1.ServiceImport{}
 	err = ser.Client.Get(context.TODO(), req1.NamespacedName, &si)
 	assertions.True(apierrors.IsNotFound(err))
 }
 
 func TestUpdateExportWithoutImport(t *testing.T) {
-	//assertions := require.New(t)
-	exp1, es1 := prepareServiceExport(t)
+	exp1, _ := prepareServiceExport(t)
 	preloadedObjects := []runtime.Object{service, exp1}
 	ser := mcscontroller.ServiceExportReconciler{
 		Client: getClient(preloadedObjects),
@@ -282,14 +318,13 @@ func TestUpdateExportWithoutImport(t *testing.T) {
 	if result.Requeue {
 		t.Error("unexpected requeue")
 	}
-	verfiySi(ser, t, req1, exp1, es1)
 
 	//update export: CHECK WHICK SLOT I CAN UPDATE AND DOSENT EFFECT THE IMPORT
 	//es1.
 }
 
+// Fails
 func TestUpdateExportAndImport(t *testing.T) {
-	//assertions := require.New(t)
 	exp, es := prepareServiceExport(t)
 	preloadedObjects := []runtime.Object{service, exp}
 	ser := mcscontroller.ServiceExportReconciler{
@@ -309,14 +344,30 @@ func TestUpdateExportAndImport(t *testing.T) {
 	if result.Requeue {
 		t.Error("unexpected requeue")
 	}
-	verfiySi(ser, t, req, exp, es)
 
-	//update the export:
+	si := mcsv1a1.ServiceImport{}
+	err = ser.Client.Get(context.TODO(), req.NamespacedName, &si)
+	if err != nil {
+		t.Error(err)
+	}
+	// make sure that the right serviceImport was created
+	excepted := generateExceptedServiceImport(exp, es)
+	assertions := require.New(t)
+	compareSi(&excepted, &si, assertions)
+
+	// update the export:
 	es.Service.Ports = append(es.Service.Ports, differentPort)
 	err = es.MarshalObjectMeta(&exp.ObjectMeta)
 	if err != nil {
 		t.Error(err)
 	}
+
+	err = ser.Client.Update(context.TODO(), exp)
+	if err != nil {
+		//fails here - "Operation cannot be fulfilled on serviceexports.multicluster.x-k8s.io "svc": object was modified"
+		t.Error(err)
+	}
+
 	result, err = ser.Reconcile(context.TODO(), req)
 	if err != nil {
 		t.Error(err)
@@ -325,44 +376,56 @@ func TestUpdateExportAndImport(t *testing.T) {
 		t.Error("unexpected requeue")
 	}
 
-	//sholud fail - @TODO change to generic func that compare to given SI
-	verfiySi(ser, t, req, exp, es)
+	excepted = generateExceptedServiceImport(exp, es)
+	compareSi(&excepted, &si, assertions)
 }
 
 func TestExportConflict(t *testing.T) {
 
 }
 
-func verfiySi(ser mcscontroller.ServiceExportReconciler, t *testing.T, req reconcile.Request,
-	exp *mcsv1a1.ServiceExport, es *mcs.ExportSpec) *mcsv1a1.ServiceImport {
-	si := mcsv1a1.ServiceImport{}
-	err := ser.Client.Get(context.TODO(), req.NamespacedName, &si)
-
-	if err != nil {
-		t.Error(err)
-	}
-	assertions := require.New(t)
-	compareSi(&si, exp, es, assertions)
-	return &si
-}
-
-// To ask Etai - is those fields check ok? are the name and namespace should be in this format?
+// To PR - is those fields check ok? are the name and namespace should be in this format?
 // compare two service imports field and raise error if they are not with identical values
-func compareSi(si *mcsv1a1.ServiceImport, se *mcsv1a1.ServiceExport, es *mcs.ExportSpec, assertions *require.Assertions) {
-	assertions.Equal(si.ObjectMeta.Name, lhutil.GetOriginalObjectName(se.ObjectMeta).Name)
-	assertions.Equal(si.ObjectMeta.Namespace, lhutil.GetOriginalObjectName(se.ObjectMeta).Namespace)
-	assertions.Equal(si.ObjectMeta.CreationTimestamp, se.CreationTimestamp)
-	comparePorts(si.Spec.Ports, es.Service.Ports, assertions)
-	assertions.Equal(si.Spec.Type, es.Service.Type)
-	assertions.Equal(si.Status.Clusters[0].Cluster, lhutil.GetOriginalObjectCluster(se.ObjectMeta))
+func compareSi(excepted *mcsv1a1.ServiceImport, si *mcsv1a1.ServiceImport, assertions *require.Assertions) {
+	assertions.Equal(excepted.ObjectMeta.Name, si.ObjectMeta.Name)
+	assertions.Equal(excepted.ObjectMeta.Namespace, si.ObjectMeta.Namespace)
+	assertions.Equal(excepted.ObjectMeta.CreationTimestamp, si.ObjectMeta.CreationTimestamp) // not sure if it's even a relevant field
+	assertions.Equal(excepted.Spec.Type, si.Spec.Type)
+	comparePorts(excepted.Spec.Ports, si.Spec.Ports, assertions)
+	compareClusters(excepted.Status.Clusters, si.Status.Clusters, assertions)
 }
 
 // compare two ports arrays and raise error if they are not with identical values
-func comparePorts(ports1 []mcsv1a1.ServicePort, ports2 []mcsv1a1.ServicePort, assertions *require.Assertions) {
-	assertions.Equal(len(ports1), len(ports2))
-	for i, port := range ports1 {
-		assertions.Equal(port, ports2[i])
+func comparePorts(excepted []mcsv1a1.ServicePort, ports []mcsv1a1.ServicePort, assertions *require.Assertions) {
+	assertions.Equal(len(excepted), len(ports))
+	for i, port := range excepted {
+		assertions.Equal(port, ports[i])
 	}
+}
+
+// compare two ports arrays and raise error if they are not with identical values
+func compareClusters(excepted []mcsv1a1.ClusterStatus, cs []mcsv1a1.ClusterStatus, assertions *require.Assertions) {
+	assertions.Equal(len(excepted), len(cs))
+	for i, cluster := range cs {
+		assertions.Equal(cluster, cs[i])
+	}
+}
+
+func generateExceptedServiceImport(exp *mcsv1a1.ServiceExport, es *mcs.ExportSpec) mcsv1a1.ServiceImport {
+	si := mcsv1a1.ServiceImport{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: lhutil.GetOriginalObjectName(exp.ObjectMeta).Namespace,
+			Name:      lhutil.GetOriginalObjectName(exp.ObjectMeta).Name,
+		},
+		Spec: mcsv1a1.ServiceImportSpec{
+			Type:  es.Service.Type,
+			Ports: es.Service.Ports,
+		},
+		Status: mcsv1a1.ServiceImportStatus{
+			Clusters: []mcsv1a1.ClusterStatus{{Cluster: lhutil.GetOriginalObjectCluster(exp.ObjectMeta.Labels[])}},
+		},
+	}
+	return si
 }
 
 // return a scheme with the default k8s and mcs objects
