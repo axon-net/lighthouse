@@ -219,6 +219,9 @@ func (r *ServiceExportReconciler) ensureImportFor(ctx context.Context, se *mcsv1
 			Ports: es.Service.Ports,
 		},
 		Status: mcsv1a1.ServiceImportStatus{
+			// not sure this is the way to update - it's seems like a cluster related field, some kind of a queue of all
+			// the clusters with this service, but here we create si for each se, and se is only of one cluster.
+			// each time it should contain only one cluster (the se cluster?)
 			Clusters: []mcsv1a1.ClusterStatus{{Cluster: lhutil.GetOriginalObjectCluster(se.ObjectMeta)}},
 		},
 	}

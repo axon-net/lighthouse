@@ -25,11 +25,12 @@ import (
 )
 
 const (
-	serviceName = "svc"
-	serviceNS   = "svc-ns"
-	brokerNS    = "submariner-broker"
-	cluster1    = "c1"
-	cluster2    = "c2"
+	serviceName  = "svc"
+	serviceName2 = "svc2"
+	serviceNS    = "svc-ns"
+	brokerNS     = "submariner-broker"
+	cluster1     = "c1"
+	cluster2     = "c2"
 )
 
 var (
@@ -169,6 +170,10 @@ func TestImportFromExport(t *testing.T) {
 	compareSi(&excepted, &si, assertions)
 }
 
+/*
+
+OLD VERSION - trying to use the client to create seperatlly
+
 func Test2ImportsFromExports(t *testing.T) {
 	exp1, es1 := prepareServiceExport(t)
 
@@ -212,7 +217,7 @@ func Test2ImportsFromExports(t *testing.T) {
 
 	exp2, es2 := prepareServiceExport(t)
 	exp2.Labels[lhconst.LighthouseLabelSourceCluster] = cluster2
-	excepted2 := excepted.DeepCopy()
+
 	ser.Client.Create(context.TODO(), exp2)
 	req2 := reconcile.Request{
 		NamespacedName: types.NamespacedName{
@@ -240,8 +245,77 @@ func Test2ImportsFromExports(t *testing.T) {
 		t.Error(err)
 	}
 
-	excepted = generateExceptedServiceImport(exp2, es2)
-	compareSi(excepted2, &si, assertions)
+	excepted2 := generateExceptedServiceImport(exp2, es2)
+	compareSi(&excepted2, &si, assertions)
+} */
+
+// Pass - I still needs to make sure it really testing this feature ok, didn't had the time to make sure its ok
+func Test2ImportsFromExports(t *testing.T) {
+	exp1, es1 := prepareServiceExport(t)
+	exp2, es2 := prepareServiceExport(t)
+	exp2.Name = serviceName2                                      // won't let me add 2 serviceExports with same name - probably not the field I should have edit.
+	exp2.Labels[lhconst.LighthouseLabelSourceName] = serviceName2 // changed field
+	exp2.Labels[lhconst.LighthouseLabelSourceCluster] = cluster2
+
+	preloadedObjects := []runtime.Object{service, exp1, exp2}
+	ser := mcscontroller.ServiceExportReconciler{
+		Client: getClient(preloadedObjects),
+		Log:    newLogger(t, false),
+		Scheme: getScheme(),
+	}
+
+	req1 := reconcile.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      exp1.GetName(),
+			Namespace: exp1.GetNamespace(),
+		}}
+
+	result, err := ser.Reconcile(context.TODO(), req1)
+
+	if err != nil {
+		t.Error(err)
+	}
+
+	if result.Requeue {
+		t.Error("unexpected requeue")
+	}
+
+	// check si1:
+	si := mcsv1a1.ServiceImport{}
+	err = ser.Client.Get(context.TODO(), req1.NamespacedName, &si)
+
+	if err != nil {
+		t.Error(err)
+	}
+	assertions := require.New(t)
+	excepted := generateExceptedServiceImport(exp1, es1)
+	compareSi(&excepted, &si, assertions)
+
+	// check si2:
+	req2 := reconcile.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      exp2.GetName(),
+			Namespace: exp2.GetNamespace(),
+		}}
+
+	result, err = ser.Reconcile(context.TODO(), req2)
+
+	if err != nil {
+		t.Error(err)
+	}
+
+	if result.Requeue {
+		t.Error("unexpected requeue")
+	}
+
+	err = ser.Client.Get(context.TODO(), req2.NamespacedName, &si)
+
+	if err != nil {
+		t.Error(err)
+	}
+
+	excepted2 := generateExceptedServiceImport(exp2, es2)
+	compareSi(&excepted2, &si, assertions)
 }
 
 // FAILS - The service import is not deleted after deleting the service export
@@ -297,6 +371,7 @@ func TestCreateAndDeleteExport(t *testing.T) {
 	assertions.True(apierrors.IsNotFound(err))
 }
 
+// not finished - need to change some field (!)
 func TestUpdateExportWithoutImport(t *testing.T) {
 	exp1, _ := prepareServiceExport(t)
 	preloadedObjects := []runtime.Object{service, exp1}
@@ -319,11 +394,11 @@ func TestUpdateExportWithoutImport(t *testing.T) {
 		t.Error("unexpected requeue")
 	}
 
-	//update export: CHECK WHICK SLOT I CAN UPDATE AND DOSENT EFFECT THE IMPORT
+	panic("Not finished writing the test") //update export: CHECK WHICK SLOT I CAN UPDATE AND DOSENT EFFECT THE IMPORT
 	//es1.
 }
 
-// Fails
+// Fails - maybe the client dosnt really update? not sure the conroller is really wathcing, but the reconcile should cover it..
 func TestUpdateExportAndImport(t *testing.T) {
 	exp, es := prepareServiceExport(t)
 	preloadedObjects := []runtime.Object{service, exp}
@@ -381,7 +456,7 @@ func TestUpdateExportAndImport(t *testing.T) {
 }
 
 func TestExportConflict(t *testing.T) {
-
+	panic("Not implemented")
 }
 
 // To PR - is those fields check ok? are the name and namespace should be in this format?
@@ -407,7 +482,7 @@ func comparePorts(excepted []mcsv1a1.ServicePort, ports []mcsv1a1.ServicePort, a
 func compareClusters(excepted []mcsv1a1.ClusterStatus, cs []mcsv1a1.ClusterStatus, assertions *require.Assertions) {
 	assertions.Equal(len(excepted), len(cs))
 	for i, cluster := range cs {
-		assertions.Equal(cluster, cs[i])
+		assertions.Equal(cluster, excepted[i])
 	}
 }
 
@@ -422,7 +497,7 @@ func generateExceptedServiceImport(exp *mcsv1a1.ServiceExport, es *mcs.ExportSpe
 			Ports: es.Service.Ports,
 		},
 		Status: mcsv1a1.ServiceImportStatus{
-			Clusters: []mcsv1a1.ClusterStatus{{Cluster: lhutil.GetOriginalObjectCluster(exp.ObjectMeta.Labels[])}},
+			Clusters: []mcsv1a1.ClusterStatus{{Cluster: exp.ObjectMeta.Labels[lhconst.LighthouseLabelSourceCluster]}},
 		},
 	}
 	return si
