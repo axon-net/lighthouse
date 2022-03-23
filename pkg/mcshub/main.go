@@ -40,7 +40,7 @@ import (
 
 	// +kubebuilder:scaffold:imports
 
-	"github.com/submariner-io/lighthouse/pkg/mcshub"
+	mcshub "github.com/submariner-io/lighthouse/pkg/mcshub/controller"
 )
 
 var (

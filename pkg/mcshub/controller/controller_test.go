@@ -21,7 +21,7 @@ import (
 	lhconst "github.com/submariner-io/lighthouse/pkg/constants"
 	"github.com/submariner-io/lighthouse/pkg/lhutil"
 	"github.com/submariner-io/lighthouse/pkg/mcs"
-	"github.com/submariner-io/lighthouse/pkg/mcshub"
+	mcshub "github.com/submariner-io/lighthouse/pkg/mcshub/controller"
 )
 
 const (
