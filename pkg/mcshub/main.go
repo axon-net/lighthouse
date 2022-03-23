@@ -26,9 +26,9 @@ package main
 import (
 	"errors"
 	"flag"
-	"fmt"
 	"os"
 
+	"github.com/submariner-io/lighthouse/pkg/mcshub/controller"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -37,19 +37,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	mcsv1a1 "sigs.k8s.io/mcs-api/pkg/apis/v1alpha1"
-
 	// +kubebuilder:scaffold:imports
-
-	mcshub "github.com/submariner-io/lighthouse/pkg/mcshub/controller"
 )
 
 var (
 	scheme   = runtime.NewScheme()
 	setupLog = ctrl.Log.WithName("setup")
-)
-
-const (
-	ENV_NAMESPACE = "NAMESPACE"
 )
 
 func init() {
@@ -69,8 +62,7 @@ func main() {
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
-	flag.StringVar(&namespace, "ns", os.Getenv(ENV_NAMESPACE),
-		"namespace to watch, defaults to "+ENV_NAMESPACE+" environment variable")
+	flag.StringVar(&namespace, "ns", "submariner-k8s-broker", "namespace to watch")
 
 	// Add the zap logger flag set to the CLI. The flag set must
 	// be added before calling flag.Parse().
@@ -79,14 +71,6 @@ func main() {
 
 	flag.Parse()
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
-
-	if namespace == corev1.NamespaceAll {
-		ns, err := getWatchedNamespace()
-		if err != nil {
-			setupLog.Error(err, "Failed to get watched namespace from environment")
-		}
-		namespace = ns
-	}
 
 	if namespace == corev1.NamespaceAll {
 		setupLog.Error(errors.New("no namespace provided"), "Can't run in cluster scope")
@@ -109,7 +93,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err = (&mcshub.ServiceExportReconciler{
+	if err = (&controller.ServiceExportReconciler{
 		Client: mgr.GetClient(),
 		Log:    ctrl.Log.WithName("controllers").WithName("ServiceExport"),
 		Scheme: mgr.GetScheme(),
@@ -134,16 +118,4 @@ func main() {
 		setupLog.Error(err, "Problem running manager")
 		os.Exit(1)
 	}
-}
-
-// getWatchedNamespace returns the Namespace the operator should be watching for changes.
-// An empty value means the operator is running with cluster scope (currently unsupported!).
-// Could support multiple, comma separated values, by setting the controller NewCache
-// option with cache.MultiNamespacedCacheBuilder().
-func getWatchedNamespace() (string, error) {
-	ns, found := os.LookupEnv(ENV_NAMESPACE)
-	if !found {
-		return "", fmt.Errorf("environment variable %s should be set", ENV_NAMESPACE)
-	}
-	return ns, nil
 }

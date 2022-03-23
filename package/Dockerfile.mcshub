@@ -2,6 +2,6 @@ FROM scratch
 
 WORKDIR /var/submariner
 
-COPY bin/hub-mcscontroller /usr/local/bin/
+COPY bin/mcshub /usr/local/bin/
 
-ENTRYPOINT ["/usr/local/bin/hub-mcscontroller", "-ns", "submariner-k8s-broker"]
+ENTRYPOINT ["/usr/local/bin/mcshub", "-ns", "submariner-k8s-broker"]
