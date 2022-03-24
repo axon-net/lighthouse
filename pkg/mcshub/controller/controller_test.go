@@ -33,8 +33,10 @@ const (
 )
 
 var (
-	timeout int32 = 10
-	service       = &corev1.Service{
+	timeout      int32 = 10
+	www          int32 = 80
+	wwwAlternate int32 = 8080
+	service            = &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      serviceName,
 			Namespace: serviceNS,
@@ -48,7 +50,7 @@ var (
 				},
 			},
 			Ports: []corev1.ServicePort{
-				{Port: 80, Name: "http", Protocol: corev1.ProtocolTCP},
+				{Port: www, Name: "http", Protocol: corev1.ProtocolTCP},
 			},
 		},
 	}
@@ -134,17 +136,22 @@ func TestMultipleExports(t *testing.T) {
 	err = ser.Client.List(context.TODO(), imports, client.InNamespace(brokerNS))
 	assert.Nil(err)
 
+	exports := map[string]*mcsv1a1.ServiceExport{
+		exp1.GetName(): exp1,
+		exp2.GetName(): exp2,
+	}
+	for _, si := range imports.Items {
+		validateImportForExportedService(assert, &si, exports[si.GetName()])
+	}
+
 	assert.Len(imports.Items, 2, "expected 2 imports got", len(imports.Items))
 
-	exports := &mcsv1a1.ServiceExportList{}
-	err = ser.Client.List(context.TODO(), exports, client.InNamespace(brokerNS))
+	exportList := &mcsv1a1.ServiceExportList{}
+	err = ser.Client.List(context.TODO(), exportList, client.InNamespace(brokerNS))
 	assert.Nil(err)
 
-	for _, exp := range exports.Items {
-		conflict := lhutil.GetServiceExportCondition(&exp.Status, mcsv1a1.ServiceExportConflict)
-		if conflict == nil || conflict.Status != corev1.ConditionFalse {
-			t.Errorf("expected conflict to be unset, found %v", conflict)
-		}
+	for _, exp := range exportList.Items {
+		hasConflict(assert, &exp, false)
 	}
 }
 
@@ -233,7 +240,7 @@ func TestUpdateExportWithoutImport(t *testing.T) {
 	// @todo: can't compare entire object as resource version changes (reconcile always calls update)
 }
 
-// tests that change in non essential export properties don't change the import
+// tests that change in essential export properties changes the import
 func TestUpdateExportAndImport(t *testing.T) {
 	assert := require.New(t)
 	exp, err := prepareServiceExport(export, cluster1)
@@ -283,6 +290,7 @@ func TestUpdateExportAndImport(t *testing.T) {
 	assert.Len(post.Spec.Ports, len(spec.Service.Ports))
 }
 
+// tests handling of conflicting exports
 func TestExportConflict(t *testing.T) {
 	assert := require.New(t)
 	exp1, err := prepareServiceExport(export, cluster1)
@@ -294,7 +302,7 @@ func TestExportConflict(t *testing.T) {
 	spec := &mcs.ExportSpec{}
 	err = spec.UnmarshalObjectMeta(&exp2.ObjectMeta)
 	assert.Nil(err)
-	spec.Service.Ports[0].Port = 8080
+	spec.Service.Ports[0].Port = wwwAlternate
 	err = spec.MarshalObjectMeta(&exp2.ObjectMeta)
 	assert.Nil(err)
 
@@ -329,14 +337,88 @@ func TestExportConflict(t *testing.T) {
 	assert.Nil(err)
 
 	for _, exp := range exports.Items {
-		conflict := lhutil.GetServiceExportCondition(&exp.Status, mcsv1a1.ServiceExportConflict)
-		assert.NotNil(conflict)
-		assert.Equal(exp.GetName() == exp1.GetName(), conflict.Status == corev1.ConditionFalse,
-			"conflict set incorrectly", exp.GetName(), conflict)
+		hasConflict(assert, &exp, exp.GetName() != exp1.GetName()) // export1 should NOT conflict
 	}
 }
 
-// generate a ServiceExport matching the
+// tests handling of conflict resolution
+func TestExportConflictResolution(t *testing.T) {
+	assert := require.New(t)
+	exp1, err := prepareServiceExport(export, cluster1)
+	assert.Nil(err)
+	// change the port number on the service
+	exp2, err := prepareServiceExport(export, cluster2)
+	assert.Nil(err)
+	exp2.CreationTimestamp.Add(1 * time.Second)
+	spec := &mcs.ExportSpec{}
+	err = spec.UnmarshalObjectMeta(&exp2.ObjectMeta)
+	assert.Nil(err)
+	spec.Service.Ports[0].Port = wwwAlternate
+	err = spec.MarshalObjectMeta(&exp2.ObjectMeta)
+	assert.Nil(err)
+
+	preloadedObjects := []runtime.Object{exp1, exp2}
+	ser := controller.ServiceExportReconciler{
+		Client: getClient(preloadedObjects),
+		Log:    newLogger(t, false),
+		Scheme: getScheme(),
+	}
+
+	_, err = ser.Reconcile(context.TODO(), reconcile.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      exp1.GetName(),
+			Namespace: exp1.GetNamespace(),
+		}})
+	assert.Nil(err)
+	_, err = ser.Reconcile(context.TODO(), reconcile.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      exp2.GetName(),
+			Namespace: exp2.GetNamespace(),
+		}})
+	assert.Nil(err)
+
+	imports := &mcsv1a1.ServiceImportList{}
+	err = ser.Client.List(context.TODO(), imports, client.InNamespace(brokerNS))
+	assert.Nil(err)
+
+	assert.Len(imports.Items, 1, "expected 1 import got", len(imports.Items))
+
+	// resolve the conflict by updating the port back
+	exports := &mcsv1a1.ServiceExportList{}
+	err = ser.Client.List(context.TODO(), exports, client.InNamespace(brokerNS))
+	assert.Nil(err)
+
+	for _, exp := range exports.Items {
+		spec := &mcs.ExportSpec{}
+		err = spec.UnmarshalObjectMeta(&exp.ObjectMeta)
+		assert.Nil(err)
+		if spec.Service.Ports[0].Port != www {
+			spec.Service.Ports[0].Port = www
+			err = spec.MarshalObjectMeta(&exp.ObjectMeta)
+			assert.Nil(err)
+
+			err = ser.Client.Update(context.TODO(), &exp, &client.UpdateOptions{})
+			assert.Nil(err)
+			_, err = ser.Reconcile(context.TODO(), reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      exp.GetName(),
+					Namespace: exp.GetNamespace(),
+				}})
+			assert.Nil(err)
+		}
+	}
+
+	exports = &mcsv1a1.ServiceExportList{}
+	err = ser.Client.List(context.TODO(), exports, client.InNamespace(brokerNS))
+	assert.Nil(err)
+	assert.Len(exports.Items, 2, "expected 2 import got", len(exports.Items))
+
+	for _, exp := range exports.Items {
+		hasConflict(assert, &exp, false)
+	}
+}
+
+// generate a ServiceExport matching service (global variable) and cluster
 func prepareServiceExport(export *mcsv1a1.ServiceExport, cluster string) (*mcsv1a1.ServiceExport, error) {
 	exp := export.DeepCopy()
 
@@ -355,6 +437,7 @@ func prepareServiceExport(export *mcsv1a1.ServiceExport, cluster string) (*mcsv1
 	return exp, nil
 }
 
+// validate the Import matches expectations based on the export
 func validateImportForExportedService(assert *require.Assertions, si *mcsv1a1.ServiceImport, exp *mcsv1a1.ServiceExport) {
 	spec := &mcs.ExportSpec{}
 	_ = spec.UnmarshalObjectMeta(&exp.ObjectMeta)
@@ -367,6 +450,14 @@ func validateImportForExportedService(assert *require.Assertions, si *mcsv1a1.Se
 		assert.Equal(p, spec.Service.Ports[i])
 	}
 	assert.Equal(si.Status.Clusters[0].Cluster, exp.Labels[lhconst.LighthouseLabelSourceCluster])
+}
+
+// validate the Conflict status is set to the desired status
+func hasConflict(assert *require.Assertions, exp *mcsv1a1.ServiceExport, want bool) bool {
+	conflict := lhutil.GetServiceExportCondition(&exp.Status, mcsv1a1.ServiceExportConflict)
+	assert.NotNil(conflict)
+	assert.Equal(want, conflict.Status == corev1.ConditionTrue, "conflict set incorrectly", exp.GetName(), conflict)
+	return want == (conflict.Status == corev1.ConditionTrue)
 }
 
 // return a scheme with the default k8s and mcs objects
